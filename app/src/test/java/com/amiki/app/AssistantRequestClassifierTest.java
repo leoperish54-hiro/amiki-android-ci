@@ -13,6 +13,8 @@ public class AssistantRequestClassifierTest {
         assertTrue(AssistantRequestClassifier.isDeviceActionRequest("Send Joshua a message"));
         assertTrue(AssistantRequestClassifier.isDeviceActionRequest("Scroll down in Chrome"));
         assertTrue(AssistantRequestClassifier.isDeviceActionRequest("Please navigate to example.com"));
+        assertTrue(AssistantRequestClassifier.isDeviceActionRequest("Could you please open WhatsApp and text Joshua?"));
+        assertTrue(AssistantRequestClassifier.isDeviceActionRequest("I want you to search YouTube for physics"));
     }
 
     @Test public void leavesOrdinaryQuestionsAndConversationForCoreChat() {
