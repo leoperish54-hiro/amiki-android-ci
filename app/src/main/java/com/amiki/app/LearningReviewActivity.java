@@ -194,7 +194,7 @@ public class LearningReviewActivity extends FragmentActivity {
         try {
             token = OwnerSessionVault.readPrivilegedToken(this);
         } catch (Exception failure) {
-            OwnerSessionVault.clear(this);
+            OwnerSessionVault.clearPrivileged(this);
             updateTokenStatus();
             showQueueMessage("The stored UOSA session could not be unlocked. Create a fresh session in Owner Security.");
             return;
@@ -358,7 +358,7 @@ public class LearningReviewActivity extends FragmentActivity {
         try {
             baseToken = OwnerSessionVault.readPrivilegedToken(this);
         } catch (Exception failure) {
-            OwnerSessionVault.clear(this);
+            OwnerSessionVault.clearPrivileged(this);
             updateTokenStatus();
             showQueueMessage("The UOSA session could not be unlocked. Create a fresh L1 session.");
             return;
@@ -506,7 +506,9 @@ public class LearningReviewActivity extends FragmentActivity {
         try {
             KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
             keyStore.load(null);
-            PrivateKey privateKey = (PrivateKey) keyStore.getKey(UOSA_KEY_ALIAS, null);
+            String activeAlias = getSharedPreferences("amiki_uosa_device", MODE_PRIVATE)
+                    .getString("owner_key_alias", UOSA_KEY_ALIAS);
+            PrivateKey privateKey = (PrivateKey) keyStore.getKey(activeAlias, null);
             if (privateKey == null) throw new IllegalStateException("The enrolled owner signing key is unavailable.");
             Signature signature = Signature.getInstance("SHA256withECDSA");
             signature.initSign(privateKey);
