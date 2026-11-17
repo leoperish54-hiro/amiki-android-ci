@@ -22,3 +22,7 @@ The private repository remains authoritative. Changes made here must be reviewed
 The workflow runs local JVM unit tests and builds the debug APK on pushes, pull requests, and manual dispatches.
 
 The mirror is a build surface, not an authorization to publish user data, runtime state, local databases, or production secrets.
+
+## Asset note
+
+The large original anime portrait PNG is not included in this mirror because the GitHub connector could not transfer that binary blob. To keep the public CI build reproducible, the mirror currently maps the portrait resource name to the existing launcher-art WebP. This is a CI-only visual fallback and must not be copied back into the private source repository as a replacement for the original portrait asset.
