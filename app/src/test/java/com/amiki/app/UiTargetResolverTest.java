@@ -61,6 +61,18 @@ public class UiTargetResolverTest {
                 UiTargetResolver.findUniqueClickable(future, "Open", 5000L).status);
     }
 
+
+    @Test public void snapshotIsBoundedAndLabelsAreTruncated() {
+        java.util.List<UiNodeSnapshot.Node> many = new java.util.ArrayList<>();
+        String longLabel = new String(new char[160]).replace('\0', 'x');
+        for (int i = 0; i < 100; i++) {
+            many.add(node(i, longLabel, "", true, false, false));
+        }
+        UiNodeSnapshot snapshot = new UiNodeSnapshot("com.example.app", 10L, many);
+        assertEquals(UiNodeSnapshot.MAX_NODES, snapshot.nodes.size());
+        assertEquals(UiNodeSnapshot.MAX_LABEL_CHARS, snapshot.nodes.get(0).text.length());
+    }
+
     @Test public void editableAndPasswordValuesAreNeverStored() {
         UiNodeSnapshot.Node editable = node(0, "secret text", "hint", true, true, false);
         UiNodeSnapshot.Node password = node(1, "secret password", "password", true, false, true);
