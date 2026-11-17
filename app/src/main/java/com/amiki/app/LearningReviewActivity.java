@@ -1,6 +1,7 @@
 package com.amiki.app;
 
-import android.app.Activity;
+import androidx.fragment.app.FragmentActivity;
+import android.content.Intent;
 import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -18,9 +19,15 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.util.Base64;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+
+import androidx.annotation.NonNull;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -28,11 +35,16 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.MessageDigest;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.util.concurrent.Executor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-public class LearningReviewActivity extends Activity {
+public class LearningReviewActivity extends FragmentActivity {
     private static final int BG = 0xFF0E1224;
     private static final int PANEL = 0xFF171C33;
     private static final int CARD = 0xFF1D2340;
@@ -40,7 +52,10 @@ public class LearningReviewActivity extends Activity {
     private static final int CYAN = 0xFF4DE1C1;
     private static final int TEXT = 0xFFE8EAF6;
     private static final int MUTED = 0xFFADB4D0;
+    private static final String UOSA_KEY_ALIAS = "amiki.uosa.owner-signing.v1";
+    private static final int UOSA_AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG;
 
+    private Executor executor;
     private LinearLayout rootContent;
     private LinearLayout queueContent;
     private TextView statusView;
@@ -56,6 +71,7 @@ public class LearningReviewActivity extends Activity {
         super.onCreate(state);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
+        executor = ContextCompat.getMainExecutor(this);
         buildScreen();
         refreshQueue();
     }
@@ -94,27 +110,19 @@ public class LearningReviewActivity extends Activity {
                 13, MUTED);
         rootContent.addView(intro, params(-1, -2));
 
-        LinearLayout tokenCard = card();
-        tokenCard.addView(text("OWNER ACCESS", 11, CYAN));
-        statusView = text("Checking secure owner token…", 12, MUTED);
+        LinearLayout accessCard = card();
+        accessCard.addView(text("UOSA OWNER ACCESS", 11, CYAN));
+        statusView = text("Checking active UOSA session…", 12, MUTED);
         statusView.setPadding(0, dp(5), 0, dp(8));
-        tokenCard.addView(statusView, params(-1, -2));
-
-        LinearLayout tokenActions = new LinearLayout(this);
-        tokenActions.setOrientation(LinearLayout.HORIZONTAL);
-        Button tokenButton = actionButton("SET / CHANGE TOKEN", PURPLE);
-        tokenButton.setOnClickListener(v -> showTokenDialog());
-        tokenActions.addView(tokenButton, new LinearLayout.LayoutParams(0, dp(44), 1));
-        Button clearButton = actionButton("REMOVE", CARD);
-        clearButton.setOnClickListener(v -> confirmRemoveToken());
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(100), dp(44));
-        clearParams.setMargins(dp(7), 0, 0, 0);
-        tokenActions.addView(clearButton, clearParams);
-        tokenCard.addView(tokenActions, params(-1, dp(44)));
-        addCard(rootContent, tokenCard);
+        accessCard.addView(statusView, params(-1, -2));
+        Button ownerSecurity = actionButton("OPEN OWNER SECURITY", PURPLE);
+        ownerSecurity.setOnClickListener(v ->
+                startActivity(new Intent(this, OwnerSecurityActivity.class)));
+        accessCard.addView(ownerSecurity, params(-1, dp(44)));
+        addCard(rootContent, accessCard);
 
         TextView setupNote = text(
-                "The backend must also have AMIKI_OWNER_REVIEW_TOKEN configured in its runtime environment. Generate a strong token locally; never commit it or paste it into chat.",
+                "Review-queue reads use a short-lived UOSA L1 session. Approving or rejecting a candidate requires a fresh biometric L2 authorization bound to that exact action. The retired owner bearer token is not accepted.",
                 11, MUTED);
         setupNote.setPadding(dp(2), dp(2), dp(2), dp(12));
         rootContent.addView(setupNote, params(-1, -2));
@@ -173,65 +181,10 @@ public class LearningReviewActivity extends Activity {
     }
 
     private void updateTokenStatus() {
-        boolean configured = OwnerTokenVault.hasToken(this);
-        statusView.setText(configured
-                ? "A token is stored encrypted with Android Keystore on this device."
-                : "No owner token is stored on this device.");
-    }
-
-    private void showTokenDialog() {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setSaveEnabled(false);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        input.setHint("Paste locally generated owner token");
-        input.setTextColor(TEXT);
-        input.setHintTextColor(MUTED);
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Set owner review token")
-                .setMessage("The token is encrypted using an Android Keystore AES-GCM key. It is not displayed after saving.")
-                .setView(input)
-                .setNegativeButton("CANCEL", null)
-                .setPositiveButton("SAVE SECURELY", null)
-                .create();
-        dialog.setOnDismissListener(ignored ->
-                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE));
-        dialog.setOnShowListener(ignored -> {
-            getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
-                    WindowManager.LayoutParams.FLAG_SECURE);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                    String token = input.getText().toString();
-                    if (token.trim().length() < 32 || token.length() > 4096) {
-                        input.setError("Token must contain 32–4096 characters.");
-                        return;
-                    }
-                    try {
-                        OwnerTokenVault.saveToken(this, token);
-                        input.setText("");
-                        dialog.dismiss();
-                        updateTokenStatus();
-                        refreshQueue();
-                        Toast.makeText(this, "Owner token stored securely.", Toast.LENGTH_SHORT).show();
-                    } catch (Exception failure) {
-                        input.setText("");
-                        Toast.makeText(this, "Secure token storage failed. No token was saved.", Toast.LENGTH_LONG).show();
-                    }
-                });
-        });
-        dialog.show();
-    }
-
-    private void confirmRemoveToken() {
-        new AlertDialog.Builder(this)
-                .setTitle("Remove owner token?")
-                .setMessage("This removes the encrypted token and its Android Keystore key from this device. It does not change the backend token.")
-                .setNegativeButton("CANCEL", null)
-                .setPositiveButton("REMOVE", (dialog, which) -> {
-                    OwnerTokenVault.clear(this);
-                    updateTokenStatus();
-                    showQueueMessage("Owner token removed. Add it again to access the review queue.");
-                })
-                .show();
+        boolean active = OwnerSessionVault.hasToken(this);
+        statusView.setText(active
+                ? "An encrypted UOSA L1 session is available on this device."
+                : "No active UOSA session. Enroll this device and create a fresh L1 session in Owner Security.");
     }
 
     private void refreshQueue() {
@@ -239,16 +192,16 @@ public class LearningReviewActivity extends Activity {
         final String requestedKind = selectedKind;
         final String token;
         try {
-            token = OwnerTokenVault.readToken(this);
+            token = OwnerSessionVault.readToken(this);
         } catch (Exception failure) {
-            OwnerTokenVault.clear(this);
+            OwnerSessionVault.clear(this);
             updateTokenStatus();
-            showQueueMessage("The stored token could not be decrypted. Set it again to continue.");
+            showQueueMessage("The stored UOSA session could not be unlocked. Create a fresh session in Owner Security.");
             return;
         }
         if (token == null || token.trim().isEmpty()) {
             updateTokenStatus();
-            showQueueMessage("Set the owner token to load pending learning candidates.");
+            showQueueMessage("Create a fresh UOSA L1 session in Owner Security to load pending learning candidates.");
             return;
         }
 
@@ -261,12 +214,11 @@ public class LearningReviewActivity extends Activity {
             try {
                 URL url = new URL(ApiEndpoints.LEARNING_REVIEW_QUEUE
                         + "?kind=" + requestedKind + "&limit=100");
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(12000);
                 connection.setRequestProperty("Accept", "application/json");
-                connection.setRequestProperty("Authorization", "Bearer " + token);
                 statusCode = connection.getResponseCode();
                 if (statusCode >= 200 && statusCode < 300) {
                     JSONObject response = new JSONObject(readBody(connection.getInputStream()));
@@ -277,7 +229,7 @@ public class LearningReviewActivity extends Activity {
                     if (items == null) throw new Exception("Review queue response did not include items.");
                 }
             } catch (Exception ignored) {
-                // The UI reports a bounded status; credentials and response headers stay private.
+                // Do not log session credentials or response headers.
             } finally {
                 if (connection != null) connection.disconnect();
             }
@@ -294,11 +246,11 @@ public class LearningReviewActivity extends Activity {
                 updateTokenStatus();
                 if (loadedItems == null) {
                     if (responseCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
-                        showQueueMessage("Owner token rejected (HTTP 401). Change the token and retry.");
-                    } else if (responseCode == HttpURLConnection.HTTP_UNAVAILABLE) {
-                        showQueueMessage("Owner review is disabled on the backend (HTTP 503). Configure AMIKI_OWNER_REVIEW_TOKEN in the API process environment.");
+                        showQueueMessage("UOSA session expired or missing (HTTP 401). Open Owner Security and create a fresh L1 session.");
+                    } else if (responseCode == HttpURLConnection.HTTP_FORBIDDEN) {
+                        showQueueMessage("This UOSA session lacks the ale.review.read scope (HTTP 403). Create a session with the Android app scope profile.");
                     } else if (responseCode == 0) {
-                        showQueueMessage("Could not reach the local Amiki API. Check that the backend is running.");
+                        showQueueMessage("Could not reach the local Amiki API. Check that Core is running.");
                     } else {
                         showQueueMessage("Review queue request failed (HTTP " + responseCode + ").");
                     }
@@ -306,7 +258,7 @@ public class LearningReviewActivity extends Activity {
                 }
                 renderQueue(loadedItems);
             });
-        }).start();
+        }, "amiki-learning-review-read").start();
     }
 
     private void renderQueue(JSONArray rawItems) {
@@ -402,45 +354,102 @@ public class LearningReviewActivity extends Activity {
     }
 
     private void submitDecision(LearningReviewItem item, String action) {
-        final String token;
+        final String baseToken;
         try {
-            token = OwnerTokenVault.readToken(this);
+            baseToken = OwnerSessionVault.readToken(this);
         } catch (Exception failure) {
-            OwnerTokenVault.clear(this);
+            OwnerSessionVault.clear(this);
             updateTokenStatus();
-            showQueueMessage("The stored token is unavailable. Set it again.");
+            showQueueMessage("The UOSA session could not be unlocked. Create a fresh L1 session.");
             return;
         }
-        if (token == null || token.isEmpty()) {
-            showQueueMessage("Set the owner token before reviewing candidates.");
+        if (baseToken == null || baseToken.isEmpty()) {
+            showQueueMessage("Create a fresh UOSA L1 session before reviewing candidates.");
             return;
         }
         if (requestInFlight) return;
+
+        final String scope = "approve".equals(action)
+                ? "ale.review.approve" : "ale.review.reject";
+        final String endpoint = ApiEndpoints.LEARNING_REVIEW_QUEUE + "/" + item.id + "/" + action;
+        final String transactionHash;
+        try {
+            transactionHash = transactionHash("POST", new URL(endpoint).getPath(), "{}");
+        } catch (Exception failure) {
+            showQueueMessage("Could not prepare the transaction-bound authorization.");
+            return;
+        }
+
         requestInFlight = true;
-        showQueueMessage(("approve".equals(action) ? "Approving " : "Rejecting ") + "candidate…");
+        showQueueMessage("Requesting fresh biometric authorization for this exact decision…");
+        JSONObject elevation = new JSONObject();
+        try {
+            elevation.put("auth_level", "L2");
+            elevation.put("scope", scope);
+            elevation.put("transaction_hash", transactionHash);
+        } catch (Exception failure) {
+            requestInFlight = false;
+            showQueueMessage("Could not prepare the UOSA elevation request.");
+            return;
+        }
+
         new Thread(() -> {
-            HttpURLConnection connection = null;
-            int statusCode = 0;
             try {
-                String endpoint = ApiEndpoints.LEARNING_REVIEW_QUEUE + "/"
-                        + item.id + "/" + action;
-                connection = (HttpURLConnection) new URL(endpoint).openConnection();
-                connection.setRequestMethod("POST");
-                connection.setConnectTimeout(7000);
-                connection.setReadTimeout(12000);
-                connection.setRequestProperty("Accept", "application/json");
-                connection.setRequestProperty("Authorization", "Bearer " + token);
-                statusCode = connection.getResponseCode();
-                if (statusCode >= 200 && statusCode < 300) {
-                    // Consume the small JSON response before closing the connection.
-                    readBody(connection.getInputStream());
-                }
-            } catch (Exception ignored) {
-                // Do not log or expose the owner credential.
-            } finally {
-                if (connection != null) connection.disconnect();
+                JSONObject challenge = postJson(
+                        ApiEndpoints.UOSA_ELEVATION_CHALLENGES, elevation, baseToken);
+                String message = challenge.getString("message");
+                String challengeId = challenge.getString("challenge_id");
+                runOnUiThread(() -> authenticateAndSign(
+                        message,
+                        "Confirm " + action + " for this exact learning candidate",
+                        signature -> completeElevatedDecision(endpoint, challengeId, signature, action)
+                ));
+            } catch (Exception failure) {
+                runOnUiThread(() -> {
+                    requestInFlight = false;
+                    showQueueMessage("Could not request UOSA elevation: " + safeMessage(failure));
+                });
             }
+        }, "amiki-learning-review-elevation").start();
+    }
+
+    private void completeElevatedDecision(
+            String endpoint, String challengeId, String signature, String action) {
+        new Thread(() -> {
+            int statusCode = 0;
+            String failureMessage = null;
+            try {
+                JSONObject completion = new JSONObject();
+                completion.put("challenge_id", challengeId);
+                completion.put("signature", signature);
+                JSONObject elevated = postJson(
+                        ApiEndpoints.UOSA_ELEVATED_SESSIONS, completion, null);
+                String elevatedToken = elevated.getString("access_token");
+
+                HttpURLConnection connection = null;
+                try {
+                    connection = ApiConnection.openWithBearer(endpoint, elevatedToken);
+                    connection.setRequestMethod("POST");
+                    connection.setConnectTimeout(7000);
+                    connection.setReadTimeout(12000);
+                    statusCode = connection.getResponseCode();
+                    InputStream stream = statusCode >= 200 && statusCode < 300
+                            ? connection.getInputStream() : connection.getErrorStream();
+                    if (stream != null) {
+                        String response = readBody(stream);
+                        if (statusCode < 200 || statusCode >= 300) {
+                            failureMessage = safeApiDetail(response);
+                        }
+                    }
+                } finally {
+                    if (connection != null) connection.disconnect();
+                }
+            } catch (Exception failure) {
+                failureMessage = safeMessage(failure);
+            }
+
             final int responseCode = statusCode;
+            final String detail = failureMessage;
             runOnUiThread(() -> {
                 requestInFlight = false;
                 if (responseCode >= 200 && responseCode < 300) {
@@ -449,13 +458,125 @@ public class LearningReviewActivity extends Activity {
                             Toast.LENGTH_SHORT).show();
                     refreshQueue();
                 } else if (responseCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
-                    showQueueMessage("Owner token rejected (HTTP 401). Change the token and retry.");
+                    showQueueMessage("The L2 authorization expired or was rejected. Create a fresh L1 session and retry.");
+                } else if (responseCode == HttpURLConnection.HTTP_FORBIDDEN) {
+                    showQueueMessage("The one-use L2 authorization did not match this exact action. It has been consumed; request a new biometric approval.");
                 } else {
                     showQueueMessage("Could not " + action + " this item (HTTP "
-                            + (responseCode == 0 ? "connection failure" : responseCode) + "). Refresh and retry.");
+                            + (responseCode == 0 ? "connection failure" : responseCode) + "). "
+                            + (detail == null ? "Refresh and retry." : detail));
                 }
             });
-        }).start();
+        }, "amiki-learning-review-decision").start();
+    }
+
+    private JSONObject postJson(String endpoint, JSONObject body, String bearerToken) throws Exception {
+        HttpURLConnection connection = null;
+        try {
+            connection = ApiConnection.openWithBearer(endpoint, bearerToken);
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(7000);
+            connection.setReadTimeout(12000);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            byte[] requestBytes = body.toString().getBytes(StandardCharsets.UTF_8);
+            try (java.io.OutputStream output = connection.getOutputStream()) {
+                output.write(requestBytes);
+            }
+            int status = connection.getResponseCode();
+            InputStream stream = status >= 200 && status < 300
+                    ? connection.getInputStream() : connection.getErrorStream();
+            String response = stream == null ? "" : readBody(stream);
+            if (status < 200 || status >= 300) {
+                throw new java.io.IOException("Backend returned HTTP " + status + ": " + safeApiDetail(response));
+            }
+            return new JSONObject(response);
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private interface SignedChallengeCallback {
+        void onSigned(String signatureBase64);
+    }
+
+    private void authenticateAndSign(
+            String message, String promptSubtitle, SignedChallengeCallback callback) {
+        try {
+            KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+            keyStore.load(null);
+            PrivateKey privateKey = (PrivateKey) keyStore.getKey(UOSA_KEY_ALIAS, null);
+            if (privateKey == null) throw new IllegalStateException("The enrolled owner signing key is unavailable.");
+            Signature signature = Signature.getInstance("SHA256withECDSA");
+            signature.initSign(privateKey);
+            BiometricPrompt prompt = new BiometricPrompt(this, executor,
+                    new BiometricPrompt.AuthenticationCallback() {
+                        @Override
+                        public void onAuthenticationSucceeded(
+                                @NonNull BiometricPrompt.AuthenticationResult authenticationResult) {
+                            Signature unlocked = authenticationResult.getCryptoObject() == null
+                                    ? null : authenticationResult.getCryptoObject().getSignature();
+                            if (unlocked == null) {
+                                requestInFlight = false;
+                                showQueueMessage("Biometric verification returned no signing operation.");
+                                return;
+                            }
+                            try {
+                                unlocked.update(message.getBytes(StandardCharsets.UTF_8));
+                                byte[] signed = unlocked.sign();
+                                callback.onSigned(Base64.encodeToString(signed, Base64.NO_WRAP));
+                            } catch (Exception failure) {
+                                requestInFlight = false;
+                                showQueueMessage("Could not sign the UOSA challenge: " + safeMessage(failure));
+                            }
+                        }
+
+                        @Override
+                        public void onAuthenticationError(int code, @NonNull CharSequence message) {
+                            requestInFlight = false;
+                            showQueueMessage("Biometric authorization cancelled or failed: " + message);
+                        }
+
+                        @Override
+                        public void onAuthenticationFailed() {
+                            statusView.setText("Biometric not recognized. Try again or cancel.");
+                        }
+                    });
+            BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+                    .setTitle("Verify owner presence")
+                    .setSubtitle(promptSubtitle)
+                    .setNegativeButtonText("Cancel")
+                    .setAllowedAuthenticators(UOSA_AUTHENTICATORS)
+                    .build();
+            prompt.authenticate(info, new BiometricPrompt.CryptoObject(signature));
+        } catch (Exception failure) {
+            requestInFlight = false;
+            showQueueMessage("Could not prepare biometric signing: " + safeMessage(failure));
+        }
+    }
+
+    private String transactionHash(String method, String path, String canonicalBody) throws Exception {
+        String material = method.toUpperCase(Locale.ROOT) + "\n" + path + "\n" + canonicalBody;
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(material.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(digest.length * 2);
+        for (byte value : digest) hex.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+        return hex.toString();
+    }
+
+    private String safeApiDetail(String response) {
+        try {
+            return new JSONObject(response).optString("detail", "request rejected");
+        } catch (Exception ignored) {
+            return "request rejected";
+        }
+    }
+
+    private String safeMessage(Exception failure) {
+        String message = failure.getMessage();
+        return message == null || message.trim().isEmpty()
+                ? failure.getClass().getSimpleName() : message;
     }
 
     private void showQueueMessage(String message) {
@@ -464,11 +585,12 @@ public class LearningReviewActivity extends Activity {
         TextView state = text(message, 13, MUTED);
         state.setPadding(dp(4), dp(8), dp(4), dp(8));
         queueContent.addView(state, params(-1, -2));
-        if (message.startsWith("Set the owner token")
-                || message.startsWith("Owner token rejected")
-                || message.startsWith("The stored token")) {
-            Button setup = actionButton("CONFIGURE OWNER TOKEN", PURPLE);
-            setup.setOnClickListener(v -> showTokenDialog());
+        String normalized = message.toLowerCase(Locale.ROOT);
+        if (normalized.contains("uosa") || normalized.contains("owner security")
+                || normalized.contains("session")) {
+            Button setup = actionButton("OPEN OWNER SECURITY", PURPLE);
+            setup.setOnClickListener(v ->
+                    startActivity(new Intent(this, OwnerSecurityActivity.class)));
             queueContent.addView(setup, params(-1, dp(44)));
         }
     }

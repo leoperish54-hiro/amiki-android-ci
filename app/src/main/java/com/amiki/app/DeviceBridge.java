@@ -36,7 +36,7 @@ public final class DeviceBridge {
                 request.put("action", action);
                 request.put("arguments", arguments == null ? new JSONObject() : arguments);
 
-                connection = (HttpURLConnection) new URL(PLAN).openConnection();
+                connection = ApiConnection.open(context, PLAN);
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(10000);

@@ -13,7 +13,7 @@ final class TermuxBackendLauncher {
     static final String EXTRA_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR";
     static final String EXTRA_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND";
 
-    // These paths match the documented installation on Chimz's Termux environment.
+    // These paths match the documented Termux installation.
     static final String SCRIPT_PATH =
             "/data/data/com.termux/files/home/astra_core/scripts/start_api.sh";
     static final String WORKING_DIRECTORY =
