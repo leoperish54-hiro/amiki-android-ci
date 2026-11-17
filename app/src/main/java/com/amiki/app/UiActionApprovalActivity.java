@@ -63,7 +63,14 @@ public final class UiActionApprovalActivity extends FragmentActivity {
             case BACK: summary.append("Navigate back from the current app window"); break;
             default: summary.append("Unsupported action");
         }
-        summary.append("\n\nWindow: ").append(request.windowId)
+        summary.append("\n\nExpected result: ");
+        if ("field_value_matches".equals(request.postconditionType)) {
+            summary.append("the exact entered text is read back from the approved field");
+        } else {
+            summary.append("“").append(request.expectedUiText).append("” becomes ")
+                    .append("text_visible".equals(request.postconditionType) ? "visible" : "absent");
+        }
+        summary.append("\nWindow: ").append(request.windowId)
                 .append("\nSnapshot age: ").append(request.snapshotAgeMs).append(" ms")
                 .append("\n\nThis approval is valid for this single action only.");
         statusView = new TextView(this);
