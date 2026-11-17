@@ -23,26 +23,34 @@ public final class AccessibilityOperatorService extends AccessibilityService {
     private static volatile UiNodeSnapshot latestSnapshot;
     private static volatile String lastObservedPackage = "";
     private static volatile DeviceTaskController activeTaskController;
+    private static final Object SESSION_LOCK = new Object();
+    private static volatile long lastCaptureUptimeMillis;
 
     public static void armObservation(DeviceTaskController taskController) {
         if (taskController == null) throw new IllegalArgumentException("A task controller is required.");
         if (taskController.snapshot().state != DeviceTaskController.State.QUEUED) {
             throw new IllegalStateException("Only a newly queued task can arm observation.");
         }
-        taskController.beginObservation();
-        activeTaskController = taskController;
-        latestSnapshot = null;
-        lastObservedPackage = "";
-        observationArmed = true;
+        synchronized (SESSION_LOCK) {
+            taskController.beginObservation();
+            activeTaskController = taskController;
+            latestSnapshot = null;
+            lastObservedPackage = "";
+            lastCaptureUptimeMillis = 0L;
+            observationArmed = true;
+        }
     }
 
     public static void stopObservation() {
-        observationArmed = false;
-        latestSnapshot = null;
-        lastObservedPackage = "";
-        DeviceTaskController task = activeTaskController;
-        activeTaskController = null;
-        if (task != null && !isTerminal(task.snapshot().state)) task.stop();
+        synchronized (SESSION_LOCK) {
+            observationArmed = false;
+            latestSnapshot = null;
+            lastObservedPackage = "";
+            lastCaptureUptimeMillis = 0L;
+            DeviceTaskController task = activeTaskController;
+            activeTaskController = null;
+            if (task != null && !isTerminal(task.snapshot().state)) task.stop();
+        }
     }
 
     private static boolean isTerminal(DeviceTaskController.State state) {
@@ -76,6 +84,8 @@ public final class AccessibilityOperatorService extends AccessibilityService {
                 && type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
                 && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return;
 
+        long now = SystemClock.uptimeMillis();
+        if (now - lastCaptureUptimeMillis < 200L) return;
         CharSequence packageName = event.getPackageName();
         if (packageName == null || "com.amiki.app".contentEquals(packageName)) return;
 
@@ -85,8 +95,13 @@ public final class AccessibilityOperatorService extends AccessibilityService {
             CharSequence rootPackage = root.getPackageName();
             if (rootPackage == null || "com.amiki.app".contentEquals(rootPackage)) return;
             UiNodeSnapshot snapshot = capture(root, rootPackage.toString());
-            latestSnapshot = snapshot;
-            lastObservedPackage = snapshot.packageName;
+            synchronized (SESSION_LOCK) {
+                if (observationArmed && activeTaskController != null) {
+                    latestSnapshot = snapshot;
+                    lastObservedPackage = snapshot.packageName;
+                    lastCaptureUptimeMillis = SystemClock.uptimeMillis();
+                }
+            }
         } finally {
             root.recycle();
         }
@@ -109,7 +124,7 @@ public final class AccessibilityOperatorService extends AccessibilityService {
                     int index = nodes.size();
                     CharSequence className = node.getClassName();
                     CharSequence text = password || editable ? null : node.getText();
-                    CharSequence description = password ? null : node.getContentDescription();
+                    CharSequence description = password || editable ? null : node.getContentDescription();
                     String viewId = "";
                     try {
                         viewId = node.getViewIdResourceName();
