@@ -32,6 +32,10 @@
             android:name=".OwnerSecurityActivity"
             android:exported="false" />
         <activity
+            android:name=".UiActionApprovalActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
+        <activity
             android:name=".InstalledAppsActivity"
             android:exported="false" />
         <activity
