@@ -211,7 +211,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         root.addView(backendState);
         root.addView(section("SECURITY BOUNDARY"));
         TextView boundary = label(
-                "The backend verifies P-256 signatures over one-time challenges. First enrollment uses a single-use setup code, not the retired owner bearer. L1 sessions last 15 minutes. Higher-risk actions require a fresh, transaction-bound L2 biometric signature. Cipher and Cipher X retain separate security boundaries; this Core session does not grant Cipher X L3 authority.",
+                "The backend verifies P-256 signatures over one-time challenges. General capabilities (including Chat and agents) use a persistent device-bound grant with renewable five-minute access tokens. Cipher, ALE and Cloud use a separate 15-minute privileged session. Higher-risk actions still require fresh, transaction-bound L2 biometric approval. Cipher X retains its separate L3 security boundary.",
                 12, muted, false);
         root.addView(boundary);
         root.addView(result);
@@ -306,11 +306,15 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         boolean registered = isBackendEnrolled();
         enrollBackendButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
                 && enrolled && !registered);
+        boolean hasGeneralGrant = OwnerSessionVault.generalGrantId(this) != null;
+        generalGrantButton.setText(hasGeneralGrant
+                ? "Persistent general grant already configured"
+                : "Create persistent general access");
         generalGrantButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
-                && enrolled && registered);
+                && enrolled && registered && !hasGeneralGrant);
         privilegedSessionButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
                 && enrolled && registered);
-        revokeGeneralButton.setEnabled(!operationInFlight && OwnerSessionVault.generalGrantId(this) != null);
+        revokeGeneralButton.setEnabled(!operationInFlight && hasGeneralGrant);
         signButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
                 && enrolled);
         backendState.setText("General: "
