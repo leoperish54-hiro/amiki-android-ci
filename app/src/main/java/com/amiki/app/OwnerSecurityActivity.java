@@ -326,7 +326,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
                 + (OwnerSessionVault.hasPrivilegedToken(this)
                     ? "15-minute session active until " + OwnerSessionVault.privilegedExpiresAt(this)
                     : "no active 15-minute session")
-                + (registered ? "" : "\\nThis device is not enrolled with Core.");
+                + (registered ? "" : "\nThis device is not enrolled with Core."));
     }
 
     private boolean isBackendEnrolled() {
