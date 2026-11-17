@@ -59,10 +59,8 @@ final class UiActionNetworkClient {
                             + status + ").");
                 }
                 JSONObject receipt = new JSONObject(response);
-                if (!"recorded".equals(receipt.optString("status"))
-                        || !request.actionId.equals(receipt.optString("action_id"))
-                        || !resultCode.equals(receipt.optString("result_code"))) {
-                    throw new IllegalStateException("Core returned an invalid action outcome receipt.");
+                if (!isValidOutcomeReceipt(receipt, request, resultCode)) {
+                    throw new IllegalStateException("Core did not return a valid Cipher outcome receipt.");
                 }
                 if (callback != null) callback.onComplete(true, "Outcome receipt recorded in Cipher.");
             } catch (Exception failure) {
@@ -72,6 +70,19 @@ final class UiActionNetworkClient {
                 if (connection != null) connection.disconnect();
             }
         }, "Amiki-UI-Action-Audit").start();
+    }
+
+    static boolean isValidOutcomeReceipt(JSONObject receipt,
+                                          UiActionDispatcher.Request request,
+                                          String resultCode) {
+        if (receipt == null || request == null || resultCode == null) return false;
+        String auditHash = receipt.optString("cipher_audit_hash");
+        return "recorded".equals(receipt.optString("status"))
+                && request.actionId.equals(receipt.optString("action_id"))
+                && resultCode.equals(receipt.optString("result_code"))
+                && (request.actionId + ".outcome").equals(receipt.optString("cipher_audit_event_id"))
+                && receipt.optLong("cipher_audit_sequence", 0L) > 0L
+                && auditHash.matches("[0-9a-f]{64}");
     }
 
     private static String readLimited(InputStream input, int maxBytes) throws Exception {
