@@ -9,6 +9,12 @@ public class ApiEndpointsTest {
     private static final String GOAL_ID = "a31e7f0d-4a15-4e66-8f25-9e9d9db2a004";
 
     @Test
+    public void uosaRecoveryEndpointsUseOwnerSecurityRoutes() {
+        assertEquals(ApiEndpoints.API_V1 + "/security/recovery/challenges", ApiEndpoints.UOSA_RECOVERY_CHALLENGES);
+        assertEquals(ApiEndpoints.API_V1 + "/security/recovery/complete", ApiEndpoints.UOSA_RECOVERY_COMPLETE);
+    }
+
+    @Test
     public void cloudGoalPlannerUsesCorePlanningEndpoint() {
         assertEquals(ApiEndpoints.CLOUD + "/goals/plan", ApiEndpoints.CLOUD_GOALS_PLAN);
     }
