@@ -11,7 +11,8 @@ public final class DeviceCommandParser {
         OPEN_CHROME,
         BATTERY_STATE,
         CALL_CONTACT,
-        SET_ALARM
+        SET_ALARM,
+        OPEN_APP
     }
 
     public static final class Command {
@@ -46,10 +47,17 @@ public final class DeviceCommandParser {
         static Command alarm(int hour, int minute, String message) {
             return new Command(Action.SET_ALARM, null, hour, minute, message);
         }
+
+        static Command openApp(String name) {
+            return new Command(Action.OPEN_APP, name, -1, -1, null);
+        }
     }
 
     private static final Pattern CALL =
             Pattern.compile("^(?:please\\s+)?(?:call|dial)\\s+(.{1,128})$", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern OPEN_APP =
+            Pattern.compile("^(?:please\\s+)?(?:open|launch|start)\\s+(.{1,96})$", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern ALARM =
             Pattern.compile(
@@ -87,6 +95,18 @@ public final class DeviceCommandParser {
                 || lowered.equals("launch chrome")
                 || lowered.equals("start chrome")) {
             return Command.simple(Action.OPEN_CHROME);
+        }
+
+        Matcher openApp = OPEN_APP.matcher(request);
+        if (openApp.matches() && !lowered.contains(" and ")) {
+            String appName = stripPunctuation(openApp.group(1));
+            String normalizedAppName = appName.toLowerCase(Locale.ROOT);
+            if (!appName.isEmpty()
+                    && !normalizedAppName.startsWith("http://")
+                    && !normalizedAppName.startsWith("https://")
+                    && !normalizedAppName.startsWith("www.")) {
+                return Command.openApp(appName);
+            }
         }
 
         Matcher call = CALL.matcher(request);
