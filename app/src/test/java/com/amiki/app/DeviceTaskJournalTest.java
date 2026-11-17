@@ -65,6 +65,32 @@ public class DeviceTaskJournalTest {
     }
 
     @Test
+    public void ownerRejectionBeforeExecutionCancelsWithoutUnknownOutcomeGate() {
+        DeviceTaskJournal journal = new DeviceTaskJournal(new DeviceTaskJournal.MemoryStore());
+        journal.beginOrResume("Send a message", 1000L);
+        journal.actionPending("action-declined", 1100L);
+        journal.actionNotAuthorized("action-declined", true, 1200L);
+
+        assertEquals(DeviceTaskJournal.State.CANCELLED, journal.current().state);
+        assertEquals("owner_rejected", journal.current().lastActionResult);
+        assertFalse(journal.current().actionInFlight);
+        DeviceTaskJournal.Record next = journal.beginOrResume("Open Chrome", 1300L);
+        assertEquals(DeviceTaskJournal.State.RUNNING, next.state);
+    }
+
+    @Test
+    public void authorizationFailureBeforeExecutionDoesNotPretendOutcomeIsUnknown() {
+        DeviceTaskJournal journal = new DeviceTaskJournal(new DeviceTaskJournal.MemoryStore());
+        journal.beginOrResume("Open Spotify", 1000L);
+        journal.actionPending("action-auth-failed", 1100L);
+        journal.actionNotAuthorized("action-auth-failed", false, 1200L);
+
+        assertEquals(DeviceTaskJournal.State.CANCELLED, journal.current().state);
+        assertEquals("authorization_failed", journal.current().lastActionResult);
+        assertFalse(journal.current().actionInFlight);
+    }
+
+    @Test
     public void unverifiedActionPausesInsteadOfAdvancing() {
         DeviceTaskJournal.MemoryStore store = new DeviceTaskJournal.MemoryStore();
         DeviceTaskJournal journal = new DeviceTaskJournal(store);
