@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 
 import org.json.JSONObject;
 
@@ -30,20 +31,29 @@ public final class AccessibilityOperatorService extends AccessibilityService {
     private static volatile String lastObservedPackage = "";
     private static volatile DeviceTaskController activeTaskController;
     private static volatile AccessibilityOperatorService serviceInstance;
+    private static volatile DeviceTaskOrchestrator activeOrchestrator;
     private static volatile PendingAction pendingAction;
     private static final Object SESSION_LOCK = new Object();
     private static volatile long lastCaptureUptimeMillis;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     public static void armObservation(DeviceTaskController taskController) {
+        armObservation(taskController, null);
+    }
+
+    static void armObservation(DeviceTaskController taskController, DeviceTaskOrchestrator orchestrator) {
         if (taskController == null) throw new IllegalArgumentException("A task controller is required.");
         if (taskController.snapshot().state != DeviceTaskController.State.QUEUED) {
             throw new IllegalStateException("Only a newly queued task can arm observation.");
         }
         synchronized (SESSION_LOCK) {
             if (serviceInstance == null) throw new IllegalStateException("Amiki UI Operator is not connected.");
+            if (observationArmed || activeTaskController != null) {
+                throw new IllegalStateException("Another Android UI task is already active.");
+            }
             taskController.beginObservation();
             activeTaskController = taskController;
+            activeOrchestrator = orchestrator;
             latestSnapshot = null;
             lastObservedPackage = "";
             lastCaptureUptimeMillis = 0L;
@@ -52,8 +62,52 @@ public final class AccessibilityOperatorService extends AccessibilityService {
         }
     }
 
-    public static void stopObservation() {
+    static boolean isOperatorConnected() {
+        return serviceInstance != null;
+    }
+
+    static void startUserTask(Context context, String userIntent, DeviceTaskOrchestrator.Listener listener) {
+        if (serviceInstance == null) {
+            throw new IllegalStateException("Enable Amiki UI Operator in Android Accessibility settings first.");
+        }
         synchronized (SESSION_LOCK) {
+            if (observationArmed || activeTaskController != null || activeOrchestrator != null) {
+                throw new IllegalStateException("Amiki is already handling a device task. Stop or finish it before starting another.");
+            }
+        }
+        DeviceTaskOrchestrator runner = new DeviceTaskOrchestrator(context, userIntent, listener);
+        runner.start();
+    }
+
+    static boolean isCurrentSnapshot(UiNodeSnapshot snapshot) {
+        if (snapshot == null || !observationArmed || latestSnapshot != snapshot) return false;
+        long age = SystemClock.uptimeMillis() - snapshot.capturedAtUptimeMillis;
+        return age >= 0 && age <= UiTargetResolver.MAX_SNAPSHOT_AGE_MS;
+    }
+
+    static void captureActiveWindowNow() {
+        AccessibilityOperatorService service = serviceInstance;
+        if (service == null) return;
+        service.mainHandler.postDelayed(service::captureCurrentWindowAndPublish, 250L);
+    }
+
+    static void pauseObservation(DeviceTaskOrchestrator orchestrator) {
+        synchronized (SESSION_LOCK) {
+            if (activeOrchestrator != orchestrator) return;
+            observationArmed = false;
+            latestSnapshot = null;
+            lastObservedPackage = "";
+            lastCaptureUptimeMillis = 0L;
+            pendingAction = null;
+            activeTaskController = null;
+            activeOrchestrator = null;
+        }
+    }
+
+    public static void stopObservation() {
+        DeviceTaskOrchestrator runner;
+        synchronized (SESSION_LOCK) {
+            runner = activeOrchestrator;
             observationArmed = false;
             latestSnapshot = null;
             lastObservedPackage = "";
@@ -61,8 +115,10 @@ public final class AccessibilityOperatorService extends AccessibilityService {
             pendingAction = null;
             DeviceTaskController task = activeTaskController;
             activeTaskController = null;
+            activeOrchestrator = null;
             if (task != null && !isTerminal(task.snapshot().state)) task.stop();
         }
+        if (runner != null) runner.onServiceInterrupted();
     }
 
     private static boolean isTerminal(DeviceTaskController.State state) {
@@ -143,6 +199,18 @@ public final class AccessibilityOperatorService extends AccessibilityService {
             task.requestOwnerApproval(summary);
             pendingAction = new PendingAction(request, task);
         }
+        DeviceTaskOrchestrator runner = activeOrchestrator;
+        if (runner != null && !runner.onActionApprovalQueued(request.actionId)) {
+            synchronized (SESSION_LOCK) {
+                if (pendingAction != null && pendingAction.request.actionId.equals(request.actionId)) {
+                    pendingAction = null;
+                }
+            }
+            if (!isTerminal(task.snapshot().state)) {
+                task.ownerApprovalFailed("The task journal could not persist the pending action.");
+            }
+            throw new IllegalStateException("The pending UI action could not be durably recorded.");
+        }
         Intent intent = new Intent(service, UiActionApprovalActivity.class);
         intent.putExtra(UiActionApprovalActivity.EXTRA_ACTION_ID, request.actionId);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -152,6 +220,10 @@ public final class AccessibilityOperatorService extends AccessibilityService {
         } catch (RuntimeException failure) {
             synchronized (SESSION_LOCK) { pendingAction = null; }
             if (!isTerminal(task.snapshot().state)) task.fail("Could not open the owner action approval screen.");
+            if (runner != null) {
+                runner.onAuthorizationFailed(request.actionId, false,
+                        "Could not open the owner action approval screen. No action was performed.");
+            }
             throw new IllegalStateException("Owner action approval could not be opened.", failure);
         }
     }
@@ -185,15 +257,16 @@ public final class AccessibilityOperatorService extends AccessibilityService {
         if (pending == null || service == null || !pending.request.actionId.equals(actionId)) return;
         synchronized (SESSION_LOCK) { pendingAction = null; }
         DeviceTaskController.Snapshot state = pending.controller.snapshot();
+        boolean cancelled = safeReason != null
+                && safeReason.toLowerCase(Locale.ROOT).contains("cancel");
         if (state.state == DeviceTaskController.State.AWAITING_OWNER_APPROVAL) {
-            if (safeReason != null && safeReason.toLowerCase(Locale.ROOT).contains("cancel")) {
-                pending.controller.ownerRejected();
-            } else {
-                pending.controller.ownerApprovalFailed(safeReason);
-            }
+            if (cancelled) pending.controller.ownerRejected();
+            else pending.controller.ownerApprovalFailed(safeReason);
         } else if (!isTerminal(state.state)) {
             pending.controller.fail(safeReason);
         }
+        DeviceTaskOrchestrator runner = activeOrchestrator;
+        if (runner != null) runner.onAuthorizationFailed(actionId, cancelled, safeReason);
     }
 
     @Override
@@ -207,22 +280,50 @@ public final class AccessibilityOperatorService extends AccessibilityService {
         if (now - lastCaptureUptimeMillis < 200L) return;
         CharSequence packageName = event.getPackageName();
         if (packageName == null || "com.amiki.app".contentEquals(packageName)) return;
-        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo root = findForegroundApplicationRoot();
         if (root == null) return;
+        UiNodeSnapshot published = null;
+        DeviceTaskOrchestrator runner = null;
         try {
             CharSequence rootPackage = root.getPackageName();
             if (rootPackage == null || "com.amiki.app".contentEquals(rootPackage)) return;
-            UiNodeSnapshot snapshot = capture(root, rootPackage.toString(), root.getWindowId());
+            published = capture(root, rootPackage.toString(), root.getWindowId());
             synchronized (SESSION_LOCK) {
                 if (observationArmed && activeTaskController != null) {
-                    latestSnapshot = snapshot;
-                    lastObservedPackage = snapshot.packageName;
+                    latestSnapshot = published;
+                    lastObservedPackage = published.packageName;
                     lastCaptureUptimeMillis = SystemClock.uptimeMillis();
+                    runner = activeOrchestrator;
                 }
             }
         } finally {
             root.recycle();
         }
+        if (runner != null && published != null) runner.onSnapshot(published);
+    }
+
+    private void captureCurrentWindowAndPublish() {
+        if (!observationArmed) return;
+        AccessibilityNodeInfo root = findForegroundApplicationRoot();
+        if (root == null) return;
+        UiNodeSnapshot published = null;
+        DeviceTaskOrchestrator runner = null;
+        try {
+            CharSequence packageName = root.getPackageName();
+            if (packageName == null || "com.amiki.app".contentEquals(packageName)) return;
+            published = capture(root, packageName.toString(), root.getWindowId());
+            synchronized (SESSION_LOCK) {
+                if (observationArmed && activeTaskController != null) {
+                    latestSnapshot = published;
+                    lastObservedPackage = published.packageName;
+                    lastCaptureUptimeMillis = SystemClock.uptimeMillis();
+                    runner = activeOrchestrator;
+                }
+            }
+        } finally {
+            root.recycle();
+        }
+        if (runner != null && published != null) runner.onSnapshot(published);
     }
 
     private void executePending(PendingAction pending) {
@@ -234,9 +335,10 @@ public final class AccessibilityOperatorService extends AccessibilityService {
             rejectPending(pending, "stale_target_rejected", "The task was stopped before the action began.");
             return;
         }
-        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo root = findWindowRoot(
+                pending.request.packageName, pending.request.windowId);
         if (root == null) {
-            rejectPending(pending, "stale_target_rejected", "No active accessibility window was available after approval.");
+            rejectPending(pending, "stale_target_rejected", "The approved app window was not available after owner approval.");
             return;
         }
         boolean accepted = false;
@@ -336,48 +438,59 @@ public final class AccessibilityOperatorService extends AccessibilityService {
         } finally {
             root.recycle();
         }
-        mainHandler.postDelayed(() -> verifyPending(pending), 450L);
+        mainHandler.postDelayed(() -> verifyPending(pending, 3), 450L);
     }
 
-    private void verifyPending(PendingAction pending) {
+    private void verifyPending(PendingAction pending, int retriesRemaining) {
         synchronized (SESSION_LOCK) {
             if (pendingAction != pending || !observationArmed) return;
         }
         String resultCode = "outcome_unverified";
-        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo root = pending.request.actionType == UiActionDispatcher.ActionType.TYPE_TEXT
+                ? findWindowRoot(pending.request.packageName, pending.request.windowId)
+                : findForegroundApplicationRoot();
         if (root != null) {
             try {
-                if (pending.request.actionType == UiActionDispatcher.ActionType.TYPE_TEXT) {
-                    AccessibilityNodeInfo field = findUniqueEditableNode(
-                            root, pending.request.targetViewId, pending.request.windowId);
-                    if (field != null) {
-                        try {
-                            CharSequence actual = field.getText();
-                            if (actual != null && pending.request.matchesTypedText(actual.toString())) {
-                                resultCode = "outcome_verified";
-                            }
-                        } finally { field.recycle(); }
-                    }
-                } else {
-                    CharSequence packageName = root.getPackageName();
-                    if (packageName != null) {
-                        UiNodeSnapshot after = capture(root, packageName.toString(), root.getWindowId());
-                        boolean matched = pending.request.matchesPostcondition(
-                                after, SystemClock.uptimeMillis());
-                        if (matched) resultCode = "outcome_verified";
-                        synchronized (SESSION_LOCK) {
+                CharSequence packageName = root.getPackageName();
+                if (packageName != null && pending.request.packageName.equals(packageName.toString())) {
+                    UiNodeSnapshot after = capture(root, packageName.toString(), root.getWindowId());
+                    synchronized (SESSION_LOCK) {
+                        if (observationArmed) {
                             latestSnapshot = after;
                             lastObservedPackage = after.packageName;
                             lastCaptureUptimeMillis = SystemClock.uptimeMillis();
                         }
                     }
+                    if (pending.request.actionType == UiActionDispatcher.ActionType.TYPE_TEXT) {
+                        if (root.getWindowId() == pending.request.windowId) {
+                            AccessibilityNodeInfo field = findUniqueEditableNode(
+                                    root, pending.request.targetViewId, pending.request.windowId);
+                            if (field != null) {
+                                try {
+                                    CharSequence actual = field.getText();
+                                    if (actual != null && pending.request.matchesTypedText(actual.toString())) {
+                                        resultCode = "outcome_verified";
+                                    }
+                                } finally { field.recycle(); }
+                            }
+                        }
+                    } else {
+                        boolean matched = pending.request.matchesPostcondition(
+                                after, SystemClock.uptimeMillis());
+                        if (matched) resultCode = "outcome_verified";
+                    }
                 }
             } finally { root.recycle(); }
+        }
+        if (!"outcome_verified".equals(resultCode) && retriesRemaining > 0) {
+            mainHandler.postDelayed(
+                    () -> verifyPending(pending, retriesRemaining - 1), 450L);
+            return;
         }
         recordOutcome(pending, resultCode,
                 resultCode.equals("outcome_verified")
                         ? "A post-action UI state check matched the action's verification rule."
-                        : "Android accepted the action, but its resulting UI state could not be verified.");
+                        : "Android accepted the action, but its resulting UI state could not be verified after bounded rechecks.");
     }
 
     private void rejectPending(PendingAction pending, String resultCode, String safeDetail) {
@@ -411,7 +524,85 @@ public final class AccessibilityOperatorService extends AccessibilityService {
                     } else {
                         pending.controller.fail(safeDetail);
                     }
+                    DeviceTaskOrchestrator runner = activeOrchestrator;
+                    if (runner != null) {
+                        runner.onActionOutcome(pending.request.actionId, resultCode,
+                                recorded, latestSnapshot);
+                    }
                 }));
+    }
+
+    /**
+     * Selects the foreground application window, not the soft keyboard's
+     * TYPE_INPUT_METHOD window. This keeps planning and postconditions tied
+     * to the app the owner asked Amiki to operate.
+     */
+    private AccessibilityNodeInfo findForegroundApplicationRoot() {
+        List<AccessibilityWindowInfo> windows;
+        try { windows = getWindows(); }
+        catch (RuntimeException unavailable) { return null; }
+        AccessibilityNodeInfo fallback = null;
+        try {
+            for (AccessibilityWindowInfo window : windows) {
+                if (window == null || window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                    continue;
+                }
+                AccessibilityNodeInfo root = null;
+                try { root = window.getRoot(); }
+                catch (RuntimeException ignored) { }
+                if (root == null) continue;
+                CharSequence packageName = root.getPackageName();
+                if (packageName == null || "com.amiki.app".contentEquals(packageName)) {
+                    root.recycle();
+                    continue;
+                }
+                if (window.isFocused()) {
+                    if (fallback != null) fallback.recycle();
+                    return root;
+                }
+                if (fallback == null && window.isActive()) fallback = root;
+                else root.recycle();
+            }
+        } finally {
+            for (AccessibilityWindowInfo window : windows) {
+                if (window != null) {
+                    try { window.recycle(); } catch (RuntimeException ignored) { }
+                }
+            }
+        }
+        return fallback;
+    }
+
+    /** Returns one exact app window after an approval handoff. */
+    private AccessibilityNodeInfo findWindowRoot(String packageName, int windowId) {
+        if (packageName == null || packageName.trim().isEmpty() || windowId < 0) return null;
+        List<AccessibilityWindowInfo> windows;
+        try { windows = getWindows(); }
+        catch (RuntimeException unavailable) { return null; }
+        AccessibilityNodeInfo selected = null;
+        try {
+            for (AccessibilityWindowInfo window : windows) {
+                if (window == null || window.getId() != windowId
+                        || window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
+                AccessibilityNodeInfo root = null;
+                try { root = window.getRoot(); }
+                catch (RuntimeException ignored) { }
+                if (root == null) continue;
+                CharSequence actualPackage = root.getPackageName();
+                if (actualPackage != null && packageName.equals(actualPackage.toString())) {
+                    selected = root;
+                    break;
+                }
+                root.recycle();
+            }
+        } finally {
+            for (AccessibilityWindowInfo window : windows) {
+                if (window != null) {
+                    try { window.recycle(); } catch (RuntimeException ignored) { }
+                }
+            }
+        }
+        return selected;
     }
 
     private UiNodeSnapshot capture(AccessibilityNodeInfo root, String packageName, int windowId) {
