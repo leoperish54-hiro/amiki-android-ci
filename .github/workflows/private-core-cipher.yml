@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: leoperish54-hiro/Amiki-
-          ref: 8c00e0d86aa1040b1405727ae00efe2f116c0b98
+          ref: 8009ab741e9e2440374455f276ae20315d7d5029
           token: ${{ secrets.AMIKI_PRIVATE_REPO_READ_TOKEN }}
           path: private/Amiki-Core
           persist-credentials: false
@@ -73,6 +73,7 @@ jobs:
         run: |
           python -m pytest -q \
             interfaces/api/tests/test_device_ui_actions.py \
+            interfaces/api/tests/test_device_ui_task_planner.py \
             interfaces/api/tests/test_uosa_security.py::test_transaction_binding_uses_canonical_json_and_newline_separators
 
       - name: Install Cipher package and test dependencies
