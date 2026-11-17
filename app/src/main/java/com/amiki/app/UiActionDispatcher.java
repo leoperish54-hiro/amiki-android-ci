@@ -97,7 +97,7 @@ public final class UiActionDispatcher {
             this.typedText = typedText;
             this.payloadSha256 = typedText == null ? null : digest(saltHex + "|payload|" + typedText);
             this.originalSnapshot = snapshot;
-            if (expectedUiState != null && !snapshot.treeComplete) {
+            if (!snapshot.treeComplete) {
                 throw new IllegalArgumentException("The accessibility tree is incomplete; observe the full screen again.");
             }
             if (actionType == ActionType.TYPE_TEXT) {
