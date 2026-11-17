@@ -171,6 +171,12 @@ public final class UosaRecoveryActivity extends FragmentActivity {
                                 .putBoolean("backend_enrolled", true)
                                 .apply();
                         OwnerSessionVault.clear(this);
+                        try {
+                            KeyStore sessionKeys = loadKeyStore();
+                            if (sessionKeys.containsAlias("amiki.uosa.continuity.v1")) {
+                                sessionKeys.deleteEntry("amiki.uosa.continuity.v1");
+                            }
+                        } catch (Exception ignored) { }
                         if (oldAlias != null && !oldAlias.equals(alias)) {
                             try {
                                 KeyStore store = loadKeyStore();
