@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer orbital glow -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#A35CFF"
+        android:strokeWidth="1.8"
+        android:pathData="M15,70 C18,43 40,23 67,25 C91,27 99,47 92,65" />
+
+    <!-- Second orbital -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#72E5FF"
+        android:strokeWidth="1.8"
+        android:pathData="M16,38 C35,18 65,17 87,38 C103,53 91,78 68,85" />
+
+    <!-- Orbital nodes -->
+    <path
+        android:fillColor="#A961FF"
+        android:pathData="M19,68 A2.5,2.5 0,1 0,24,68 A2.5,2.5 0,1 0,19,68" />
+
+    <path
+        android:fillColor="#72E5FF"
+        android:pathData="M84,34 A2.5,2.5 0,1 0,89,34 A2.5,2.5 0,1 0,84,34" />
+
+    <path
+        android:fillColor="#C58AFF"
+        android:pathData="M68,80 A2,2 0,1 0,72,80 A2,2 0,1 0,68,80" />
+
+    <path
+        android:fillColor="#8EEBFF"
+        android:pathData="M34,25 A2,2 0,1 0,38,25 A2,2 0,1 0,34,25" />
+
+    <!-- Nucleus halo -->
+    <path
+        android:fillColor="#7D3FEF"
+        android:fillAlpha="0.22"
+        android:pathData="M78,54 A24,24 0,1 1,30,54 A24,24 0,1 1,78,54" />
+
+    <!-- Nucleus -->
+    <path
+        android:fillColor="#9D5CFF"
+        android:pathData="M72,54 A18,18 0,1 1,36,54 A18,18 0,1 1,72,54" />
+
+    <!-- Nucleus highlight -->
+    <path
+        android:fillColor="#EBD7FF"
+        android:fillAlpha="0.42"
+        android:pathData="M67,47 A11,11 0,1 1,45,47 A11,11 0,1 1,67,47" />
+
+    <!-- Integrated A -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#130B25"
+        android:strokeWidth="4.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M44,62 L54,39 L64,62 M48,55 L60,55" />
+
+    <!-- Central light -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,54 A2,2 0,1 0,56,54 A2,2 0,1 0,52,54" />
+
+</vector>

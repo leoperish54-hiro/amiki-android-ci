@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Amiki" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#040719</item>
+        <item name="android:statusBarColor">#040719</item>
+        <item name="android:navigationBarColor">#040719</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#B768FF</item>
+    </style>
+
+    <style name="Theme.Amiki.Launch" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#040719</item>
+        <item name="android:statusBarColor">#040719</item>
+        <item name="android:navigationBarColor">#040719</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#B768FF</item>
+    </style>
+</resources>
