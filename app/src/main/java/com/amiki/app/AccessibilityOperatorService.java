@@ -438,7 +438,11 @@ public final class AccessibilityOperatorService extends AccessibilityService {
                             break;
                         }
                         AccessibilityNodeInfo child = node.getChild(i);
-                        if (child != null) queue.addLast(new PendingNode(child, nodes.size() - 1, pending.depth + 1));
+                        if (child != null) {
+                            queue.addLast(new PendingNode(child, nodes.size() - 1, pending.depth + 1));
+                        } else {
+                            complete = false;
+                        }
                     }
                 } finally {
                     if (node != root) node.recycle();
