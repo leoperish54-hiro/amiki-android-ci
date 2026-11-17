@@ -148,15 +148,9 @@ public final class DeviceBridge {
                 callback.onResult("Opened the requested URL.");
             } else if ("open_app".equals(action)) {
                 String packageName = args.getString("package");
-                android.content.pm.PackageManager pm = context.getPackageManager();
-                Intent launch = pm.getLaunchIntentForPackage(packageName);
-                if (launch == null) {
-                    callback.onResult("The requested app is not installed.");
-                    return;
-                }
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(launch);
-                callback.onResult("Opened the requested app.");
+                DeviceCapabilityGateway.LaunchResult launch =
+                        new DeviceCapabilityGateway(context).launchConfirmedApp(packageName);
+                callback.onResult(launch.message);
             } else if ("speak".equals(action)) {
                 String text = args.getString("text");
                 if (context instanceof MobileShellActivity) {
