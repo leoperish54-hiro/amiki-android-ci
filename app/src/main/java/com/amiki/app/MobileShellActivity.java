@@ -337,7 +337,7 @@ public class MobileShellActivity extends Activity {
         TextView welcome = t("Welcome back,", 29, TEXT);
         welcome.setTypeface(null, Typeface.BOLD);
         body.addView(welcome, lp(-1, dp(40)));
-        TextView owner = t("Chimz.", 31, PURPLE);
+        TextView owner = t("Owner.", 31, PURPLE);
         owner.setTypeface(null, Typeface.BOLD);
         body.addView(owner, lp(-1, dp(42)));
 
@@ -1510,9 +1510,9 @@ public class MobileShellActivity extends Activity {
 
     private String greetingText(){
         int hour=Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        if(hour<12) return "Good morning, Chimz 👋";
-        if(hour<18) return "Good afternoon, Chimz 👋";
-        return "Good evening, Chimz 👋";
+        if(hour<12) return "Good morning 👋";
+        if(hour<18) return "Good afternoon 👋";
+        return "Good evening 👋";
     }
 
     private String runtimeState(JSONObject sys){
@@ -1966,7 +1966,7 @@ public class MobileShellActivity extends Activity {
         menuContent.setPadding(dp(14), dp(20), dp(14), dp(20));
         menuContent.setClipToPadding(false);
 
-        TextView id = t("🌸  AMIKI\\nChimz\\nDigital companion", 17, TEXT);
+        TextView id = t("🌸  AMIKI\\nDigital companion", 17, TEXT);
         id.setTypeface(null, Typeface.BOLD);
         menuContent.addView(id, lp(-1, dp(92)));
 
@@ -4113,7 +4113,7 @@ public class MobileShellActivity extends Activity {
         else if(s.contains("device control")) showDevice();
         else if(s.contains("security agent") || s.contains("security audit")) showSecurityAgent();
         else if(s.contains("open browser")) { try { JSONObject a=new JSONObject(); a.put("url","https://www.google.com"); requestDeviceAction("open_url",a); } catch(Exception ignored) {} }
-        else if(s.contains("speak test")) { try { JSONObject a=new JSONObject(); a.put("text","Hello Chimz. Device integration is online."); requestDeviceAction("speak",a); } catch(Exception ignored) {} }
+        else if(s.contains("speak test")) { try { JSONObject a=new JSONObject(); a.put("text","Hello. Device integration is online."); requestDeviceAction("speak",a); } catch(Exception ignored) {} }
         else if(s.contains("share test")) { try { JSONObject a=new JSONObject(); a.put("text","Hello from Amiki device integration."); requestDeviceAction("share_text",a); } catch(Exception ignored) {} }
         else if(s.contains("battery state")) requestDeviceAction("battery_state",new JSONObject());
         else if(s.contains("device state")) requestDeviceAction("device_state",new JSONObject());

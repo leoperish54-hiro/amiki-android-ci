@@ -1658,7 +1658,7 @@ public class MainActivity extends Activity {
                 )
         );
 
-        TextView welcome = text("Welcome back, Chimz.", 26, TEXT);
+        TextView welcome = text("Welcome back.", 26, TEXT);
         welcome.setTypeface(null, 1);
         welcome.setGravity(Gravity.CENTER);
         welcomeState.addView(welcome);
