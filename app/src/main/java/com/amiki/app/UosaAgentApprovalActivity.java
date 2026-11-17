@@ -307,7 +307,7 @@ public final class UosaAgentApprovalActivity extends FragmentActivity {
     private void finishFailure(String message) {
         if (completed) return;
         completed = true;
-        UosaAgentAuthorization.complete(requestId, null, message);
+        if (requestId != null) UosaAgentAuthorization.complete(requestId, null, message);
         runOnUiThread(this::finish);
     }
 
