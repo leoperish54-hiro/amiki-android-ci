@@ -50,6 +50,21 @@ public class UiActionDispatcherTest {
         assertFalse(request.matchesTypedText("Different text"));
     }
 
+    @Test public void textEntryCannotUseAnIncompleteAccessibilitySnapshot() {
+        UiNodeSnapshot.Node field = new UiNodeSnapshot.Node(0, -1,
+                "android.widget.EditText", "", "", "com.example:id/search",
+                true, false, true, false, 0, 0, 100, 50);
+        UiNodeSnapshot partial = new UiNodeSnapshot(
+                "com.example.app", 7, 0L, Arrays.asList(field), false);
+        try {
+            UiActionDispatcher.typeText("task-incomplete-text", partial,
+                    "com.example:id/search", "query", 0L);
+            fail("text actions cannot use incomplete UI trees");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("incomplete"));
+        }
+    }
+
     @Test public void passwordFieldsCannotBecomeTypeActions() {
         UiNodeSnapshot.Node password = new UiNodeSnapshot.Node(0, -1,
                 "android.widget.EditText", "secret", "", "com.example:id/password",
