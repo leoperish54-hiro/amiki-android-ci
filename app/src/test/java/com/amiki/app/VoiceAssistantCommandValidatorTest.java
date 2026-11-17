@@ -26,7 +26,7 @@ public class VoiceAssistantCommandValidatorTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsControlCharacters() {
-        VoiceAssistantCommandValidator.validate("Open Spotify\u0000 now");
+        VoiceAssistantCommandValidator.validate(new String(new char[]{'O', 'p', 'e', 'n', 0, 'S'}));
     }
 
     @Test public void preservesUnicodeAndNormalPunctuation() {
