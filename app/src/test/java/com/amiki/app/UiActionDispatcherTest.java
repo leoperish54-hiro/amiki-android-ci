@@ -17,7 +17,7 @@ public class UiActionDispatcherTest {
 
     @Test public void tapRequestIsTypedAndBoundToExactScreenAndTarget() {
         UiActionDispatcher.Request request = UiActionDispatcher.tap(
-                "task-001", snapshot(button("Search")), "Search");
+                "task-001", snapshot(button("Search")), "Search", 0L);
         assertEquals(UiActionDispatcher.ActionType.TAP, request.actionType);
         assertEquals("com.example.app", request.packageName);
         assertEquals(7, request.windowId);
@@ -32,7 +32,7 @@ public class UiActionDispatcherTest {
                 "android.widget.EditText", "private value", "", "com.example:id/search",
                 true, false, true, false, 0, 0, 100, 50);
         UiActionDispatcher.Request request = UiActionDispatcher.typeText(
-                "task-002", snapshot(field), "com.example:id/search", "Lucid Dreams");
+                "task-002", snapshot(field), "com.example:id/search", "Lucid Dreams", 0L);
         assertEquals(UiActionDispatcher.ActionType.TYPE_TEXT, request.actionType);
         assertNotNull(request.payloadSha256);
         assertEquals(64, request.payloadSha256.length());
@@ -48,7 +48,7 @@ public class UiActionDispatcherTest {
                 true, false, true, true, 0, 0, 100, 50);
         try {
             UiActionDispatcher.typeText("task-003", snapshot(password),
-                    "com.example:id/password", "do not send");
+                    "com.example:id/password", "do not send", 0L);
             fail("password field must be rejected");
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("not be resolved"));
@@ -57,19 +57,19 @@ public class UiActionDispatcherTest {
 
     @Test public void freshWindowAndSnapshotMustMatchBeforeExecution() {
         UiNodeSnapshot original = snapshot(button("Continue"));
-        UiActionDispatcher.Request request = UiActionDispatcher.tap("task-004", original, "Continue");
-        assertTrue(request.matchesFreshSnapshot(original));
+        UiActionDispatcher.Request request = UiActionDispatcher.tap("task-004", original, "Continue", 0L);
+        assertTrue(request.matchesFreshSnapshot(original, 0L));
         UiNodeSnapshot otherWindow = new UiNodeSnapshot("com.example.app", 8, 0L,
                 Arrays.asList(button("Continue")));
-        assertFalse(request.matchesFreshSnapshot(otherWindow));
+        assertFalse(request.matchesFreshSnapshot(otherWindow, 0L));
         UiNodeSnapshot otherPackage = new UiNodeSnapshot("com.other.app", 7, 0L,
                 Arrays.asList(button("Continue")));
-        assertFalse(request.matchesFreshSnapshot(otherPackage));
+        assertFalse(request.matchesFreshSnapshot(otherPackage, 0L));
     }
 
     @Test public void authorizationReceiptMustMatchEntireActionAndRemainUnexpired() throws Exception {
         UiActionDispatcher.Request request = UiActionDispatcher.tap(
-                "task-005", snapshot(button("Play")), "Play");
+                "task-005", snapshot(button("Play")), "Play", 0L);
         JSONObject receipt = new JSONObject();
         receipt.put("status", "authorized");
         receipt.put("action_id", request.actionId);
