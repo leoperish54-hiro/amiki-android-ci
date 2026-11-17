@@ -20,6 +20,30 @@ public class UiTargetResolverTest {
         assertEquals(0, result.node.index);
     }
 
+    @Test public void ignoresInvisibleAndOffscreenClickableNodes() {
+        UiNodeSnapshot.Node invisible = new UiNodeSnapshot.Node(
+                0, -1, "android.widget.Button", "Open", "", "", true, false,
+                false, false, 0, 0, 100, 50, false);
+        UiNodeSnapshot.Node offscreen = new UiNodeSnapshot.Node(
+                1, -1, "android.widget.Button", "Open", "", "", true, false,
+                false, false, 100, 100, 100, 200, true);
+        UiNodeSnapshot snapshot = new UiNodeSnapshot("com.example.app", 10, 0L,
+                Arrays.asList(invisible, offscreen));
+        assertEquals(UiTargetResolver.Status.NOT_FOUND,
+                UiTargetResolver.findUniqueClickable(snapshot, "Open", 1000L).status);
+    }
+
+    @Test public void refusesToResolveAnyTargetFromIncompleteSnapshots() {
+        UiNodeSnapshot snapshot = new UiNodeSnapshot("com.example.app", 10, 0L,
+                Arrays.asList(node(0, "Open", "", true, false, false)), false);
+        assertEquals(UiTargetResolver.Status.INCOMPLETE_SNAPSHOT,
+                UiTargetResolver.findUniqueClickable(snapshot, "Open", 1000L).status);
+        assertEquals(UiTargetResolver.Status.INCOMPLETE_SNAPSHOT,
+                UiTargetResolver.findUniqueScrollable(snapshot, 1000L).status);
+        assertEquals(UiTargetResolver.Status.INCOMPLETE_SNAPSHOT,
+                UiTargetResolver.findUniqueEditableByViewId(snapshot, "search", 1000L).status);
+    }
+
     @Test public void rejectsAmbiguousExactLabels() {
         UiNodeSnapshot snapshot = new UiNodeSnapshot("com.example.app", 10,
                 Arrays.asList(
