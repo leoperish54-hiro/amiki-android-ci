@@ -47,6 +47,7 @@ import java.util.concurrent.Executor;
 public final class OwnerSecurityActivity extends FragmentActivity {
     private static final String KEYSTORE = "AndroidKeyStore";
     private static final String KEY_ALIAS = "amiki.uosa.owner-signing.v1";
+    private static final String ACTIVE_KEY_ALIAS_PREF = "owner_key_alias";
     private static final int AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG;
     // Explicit Android-client scope profile. L2 scopes remain transaction-bound
     // and require a fresh biometric signature for each protected operation.
@@ -180,6 +181,12 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         enrollBackendButton.setOnClickListener(v -> enrollBackend());
         root.addView(enrollBackendButton);
 
+        root.addView(section("EXISTING OWNER RECOVERY"));
+        root.addView(label("If you have your saved UOSA recovery codes, use the recovery ceremony to replace this device identity. Recovery revokes every previously enrolled device and session.", 12, muted, false));
+        Button recoveryButton = actionButton("Recover existing owner account");
+        recoveryButton.setOnClickListener(v -> startActivity(new android.content.Intent(this, UosaRecoveryActivity.class)));
+        root.addView(recoveryButton);
+
         sessionButton = actionButton("Create L1 owner session");
         sessionButton.setOnClickListener(v -> createOwnerSession());
         root.addView(sessionButton);
@@ -251,10 +258,15 @@ public final class OwnerSecurityActivity extends FragmentActivity {
 
     private boolean hasKey() {
         try {
-            return loadKeyStore().containsAlias(KEY_ALIAS);
+            return loadKeyStore().containsAlias(activeKeyAlias());
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private String activeKeyAlias() {
+        return getSharedPreferences("amiki_uosa_device", MODE_PRIVATE)
+                .getString(ACTIVE_KEY_ALIAS_PREF, KEY_ALIAS);
     }
 
     private String getOrCreateDeviceId() {
@@ -353,7 +365,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             KeyPairGenerator generator = KeyPairGenerator.getInstance(
                     KeyProperties.KEY_ALGORITHM_EC, KEYSTORE);
             KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
-                    KEY_ALIAS, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
+                    activeKeyAlias(), KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                     .setAlgorithmParameterSpec(new java.security.spec.ECGenParameterSpec("secp256r1"))
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .setUserAuthenticationRequired(true)
@@ -369,7 +381,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             boolean authEnforcedByHardware = android.os.Build.VERSION.SDK_INT < 29
                     || keyInfo.isUserAuthenticationRequirementEnforcedBySecureHardware();
             if (!hardwareBacked || !authEnforcedByHardware) {
-                loadKeyStore().deleteEntry(KEY_ALIAS);
+                loadKeyStore().deleteEntry(activeKeyAlias());
                 result.setText("This device did not provide a hardware-backed key with hardware-enforced biometric authentication. The key was discarded; UOSA enrollment is unavailable on this configuration.");
                 refreshState();
                 return;
@@ -392,7 +404,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             return;
         }
         try {
-            java.security.cert.Certificate certificate = loadKeyStore().getCertificate(KEY_ALIAS);
+            java.security.cert.Certificate certificate = loadKeyStore().getCertificate(activeKeyAlias());
             if (certificate == null) throw new IllegalStateException("The device public key is unavailable.");
             String publicKey = Base64.encodeToString(certificate.getPublicKey().getEncoded(), Base64.NO_WRAP);
             JSONObject request = new JSONObject();
@@ -490,7 +502,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             String message, String promptSubtitle, SignedChallengeCallback callback) {
         try {
             java.security.PrivateKey privateKey =
-                    (java.security.PrivateKey) loadKeyStore().getKey(KEY_ALIAS, null);
+                    (java.security.PrivateKey) loadKeyStore().getKey(activeKeyAlias(), null);
             Signature signature = Signature.getInstance("SHA256withECDSA");
             signature.initSign(privateKey);
             BiometricPrompt prompt = new BiometricPrompt(this, executor,
