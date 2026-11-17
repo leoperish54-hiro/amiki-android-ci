@@ -32,6 +32,10 @@
             android:name=".OwnerSecurityActivity"
             android:exported="false" />
         <activity
+            android:name=".UosaRecoveryActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".UiActionApprovalActivity"
             android:exported="false"
             android:excludeFromRecents="true" />
