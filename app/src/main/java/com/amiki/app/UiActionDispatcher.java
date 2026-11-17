@@ -253,22 +253,5 @@ public final class UiActionDispatcher {
     }
 
     private static String quote(String value) {
-        StringBuilder output = new StringBuilder(value.length() + 2).append('"');
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            switch (ch) {
-                case '"': output.append("\\\""); break;
-                case '\\\\': output.append("\\\\\\\\"); break;
-                case '\\b': output.append("\\\\b"); break;
-                case '\\f': output.append("\\\\f"); break;
-                case '\\n': output.append("\\\\n"); break;
-                case '\\r': output.append("\\\\r"); break;
-                case '\\t': output.append("\\\\t"); break;
-                default:
-                    if (ch < 0x20) output.append(String.format(Locale.ROOT, "\\\\u%04x", (int) ch));
-                    else output.append(ch);
-            }
-        }
-        return output.append('"').toString();
-    }
-}
+        return JSONObject.quote(value);
+    }}
