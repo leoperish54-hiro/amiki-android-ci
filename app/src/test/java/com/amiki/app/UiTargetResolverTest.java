@@ -81,4 +81,34 @@ public class UiTargetResolverTest {
         assertEquals("", password.text);
         assertEquals("", password.contentDescription);
     }
+    @Test public void requiresExactlyOneScrollableNode() {
+        UiNodeSnapshot snapshot = new UiNodeSnapshot("com.example.app", 2, 10L,
+                Arrays.asList(
+                        new UiNodeSnapshot.Node(0, -1, "android.widget.ScrollView", "", "", "list",
+                                false, true, false, false, 0, 0, 100, 300)));
+        assertEquals(UiTargetResolver.Status.FOUND,
+                UiTargetResolver.findUniqueScrollable(snapshot, 1000L).status);
+        UiNodeSnapshot ambiguous = new UiNodeSnapshot("com.example.app", 2, 10L,
+                Arrays.asList(
+                        new UiNodeSnapshot.Node(0, -1, "android.widget.ScrollView", "", "", "left",
+                                false, true, false, false, 0, 0, 50, 300),
+                        new UiNodeSnapshot.Node(1, -1, "android.widget.ScrollView", "", "", "right",
+                                false, true, false, false, 50, 0, 100, 300)));
+        assertEquals(UiTargetResolver.Status.AMBIGUOUS,
+                UiTargetResolver.findUniqueScrollable(ambiguous, 1000L).status);
+    }
+
+    @Test public void resolvesOnlyUniqueNonPasswordEditableFieldByViewId() {
+        UiNodeSnapshot.Node editable = new UiNodeSnapshot.Node(0, -1, "android.widget.EditText",
+                "hidden", "hint", "com.example:id/search", true, false, true, false,
+                0, 0, 100, 50);
+        UiNodeSnapshot snapshot = new UiNodeSnapshot("com.example.app", 2, 10L,
+                Arrays.asList(editable));
+        UiTargetResolver.Result result = UiTargetResolver.findUniqueEditableByViewId(
+                snapshot, "com.example:id/search", 1000L);
+        assertEquals(UiTargetResolver.Status.FOUND, result.status);
+        assertEquals("com.example:id/search", result.node.viewId);
+        assertEquals("", result.node.text);
+    }
+
 }
