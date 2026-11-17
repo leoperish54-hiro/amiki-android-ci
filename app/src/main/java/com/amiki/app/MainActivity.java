@@ -2147,7 +2147,7 @@ public class MainActivity extends Activity {
         sidebar.setPadding(dp(10), dp(14), dp(10), dp(14));
         sidebar.setClipToPadding(false);
 
-        TextView identity = text("🌸 AMIKI\nChimz • Digital companion", 16, TEXT);
+        TextView identity = text("🌸 AMIKI\nDigital companion", 16, TEXT);
         identity.setPadding(dp(14), dp(14), dp(14), dp(20));
         identity.setLineSpacing(0f, 1.08f);
 
