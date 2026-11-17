@@ -37,8 +37,10 @@ import java.util.concurrent.Executors;
  */
 public final class AssistantCommandService extends Service {
     public static final String ACTION_HANDLE_COMMAND = "com.amiki.app.action.HANDLE_ASSISTANT_COMMAND";
+    public static final String ACTION_HANDLE_DEVICE_TASK = "com.amiki.app.action.HANDLE_DEVICE_TASK";
     public static final String ACTION_STOP = "com.amiki.app.action.STOP_ASSISTANT_COMMAND";
     public static final String EXTRA_COMMAND = "com.amiki.app.extra.ASSISTANT_COMMAND";
+    public static final String EXTRA_DEVICE_TASK = "com.amiki.app.extra.DEVICE_TASK";
 
     private static final String CHANNEL_ID = "amiki_assistant_runtime";
     private static final int NOTIFICATION_ID = 4071;
@@ -71,6 +73,28 @@ public final class AssistantCommandService extends Service {
         context.stopService(new Intent(context, AssistantCommandService.class));
     }
 
+    public static void requestStop(Context context) {
+        if (context == null) return;
+        Intent intent = new Intent(context, AssistantCommandService.class);
+        intent.setAction(ACTION_STOP);
+        context.startService(intent);
+        AccessibilityOperatorService.stopObservation();
+    }
+
+    public static void startDeviceTask(Context context, String command) {
+        if (context == null || command == null || command.trim().isEmpty()) {
+            throw new IllegalArgumentException("A non-empty device task is required.");
+        }
+        Intent intent = new Intent(context, AssistantCommandService.class);
+        intent.setAction(ACTION_HANDLE_DEVICE_TASK);
+        intent.putExtra(EXTRA_DEVICE_TASK, command);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -99,8 +123,7 @@ public final class AssistantCommandService extends Service {
                 });
                 if (pendingSpeech != null) speak(pendingSpeech);
             } else {
-                updateNotification("Speech output is unavailable. No spoken response was delivered.");
-                main.postDelayed(() -> finishRuntime(), 10000L);
+                updateNotification("Speech output is unavailable. The foreground task runtime will remain visible until it completes or is stopped.");
             }
         });
     }
@@ -121,7 +144,10 @@ public final class AssistantCommandService extends Service {
             return START_NOT_STICKY;
         }
 
-        String command = intent == null ? null : intent.getStringExtra(EXTRA_COMMAND);
+        boolean deviceTask = intent != null
+                && ACTION_HANDLE_DEVICE_TASK.equals(intent.getAction());
+        String command = intent == null ? null : intent.getStringExtra(
+                deviceTask ? EXTRA_DEVICE_TASK : EXTRA_COMMAND);
         try {
             command = VoiceAssistantCommandValidator.validate(command);
         } catch (IllegalArgumentException invalid) {
@@ -132,6 +158,26 @@ public final class AssistantCommandService extends Service {
 
         requestRunning = true;
         final String acceptedCommand = command;
+        if (deviceTask) {
+            executor.execute(() -> {
+                try {
+                    awaitCoreReady();
+                    main.post(() -> startDeviceTaskRuntime(acceptedCommand));
+                } catch (Exception failure) {
+                    main.post(() -> {
+                        String detail = failure.getMessage();
+                        updateNotification(detail == null
+                                ? "Amiki Core is unavailable. No device action was executed."
+                                : bounded(detail, 180));
+                        pendingSpeech = "Amiki could not start the device task. " + bounded(detail, 180);
+                        if (speechReady) speak(pendingSpeech);
+                        else main.postDelayed(() -> finishRuntime(), 10000L);
+                    });
+                }
+            });
+            return START_NOT_STICKY;
+        }
+
         executor.execute(() -> {
             try {
                 String answer = askCore(acceptedCommand);
@@ -139,6 +185,7 @@ public final class AssistantCommandService extends Service {
                     updateNotification("Amiki has prepared a response. Speaking it now…");
                     pendingSpeech = answer;
                     if (speechReady) speak(answer);
+                    else main.postDelayed(() -> finishRuntime(), 10000L);
                 });
             } catch (Exception failure) {
                 main.post(() -> {
@@ -151,6 +198,35 @@ public final class AssistantCommandService extends Service {
             }
         });
         return START_NOT_STICKY;
+    }
+
+    private void startDeviceTaskRuntime(String command) {
+        try {
+            AccessibilityOperatorService.startUserTask(this, command,
+                    new DeviceTaskOrchestrator.Listener() {
+                        @Override
+                        public void onStatus(String message) {
+                            updateNotification(message);
+                        }
+
+                        @Override
+                        public void onFinished(String message, boolean needsOwnerInput) {
+                            updateNotification(message);
+                            pendingSpeech = message;
+                            if (speechReady) speak(message);
+                            else main.postDelayed(() -> finishRuntime(), 10000L);
+                        }
+                    });
+        } catch (RuntimeException failure) {
+            String detail = failure.getMessage();
+            String message = detail == null
+                    ? "Amiki could not start the Android UI Operator. No device action was performed."
+                    : bounded(detail, 220);
+            updateNotification(message);
+            pendingSpeech = message;
+            if (speechReady) speak(message);
+            else main.postDelayed(() -> finishRuntime(), 10000L);
+        }
     }
 
     private String askCore(String message) throws Exception {
@@ -323,6 +399,9 @@ public final class AssistantCommandService extends Service {
 
     private void finishRuntime() {
         if (destroyed) return;
+        if (AccessibilityOperatorService.isObservationArmed()) {
+            AccessibilityOperatorService.stopObservation();
+        }
         stopForeground(true);
         stopSelf();
     }
@@ -349,6 +428,9 @@ public final class AssistantCommandService extends Service {
 
     @Override
     public void onDestroy() {
+        if (AccessibilityOperatorService.isObservationArmed()) {
+            AccessibilityOperatorService.stopObservation();
+        }
         destroyed = true;
         if (executor != null) executor.shutdownNow();
         if (speech != null) {
