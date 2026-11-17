@@ -67,6 +67,35 @@ public class UiActionDispatcherTest {
         assertFalse(request.matchesFreshSnapshot(otherPackage, 0L));
     }
 
+    @Test public void scrollAndBackAreDistinctTypedActions() {
+        UiNodeSnapshot.Node scrollNode = new UiNodeSnapshot.Node(0, -1,
+                "android.widget.ScrollView", "", "", "com.example:id/list",
+                false, true, false, false, 0, 0, 100, 300);
+        UiNodeSnapshot scrollSnapshot = new UiNodeSnapshot(
+                "com.example.app", 7, 0L, java.util.Collections.singletonList(scrollNode));
+        UiActionDispatcher.Request forward = UiActionDispatcher.scroll(
+                "task-scroll", scrollSnapshot, true, 0L);
+        UiActionDispatcher.Request back = UiActionDispatcher.back(
+                "task-back", scrollSnapshot, 0L);
+        assertEquals(UiActionDispatcher.ActionType.SCROLL_FORWARD, forward.actionType);
+        assertEquals(UiActionDispatcher.ActionType.BACK, back.actionType);
+        assertEquals(7, forward.windowId);
+        assertEquals(7, back.windowId);
+    }
+
+    @Test public void transitionObservationDoesNotMistakeUnchangedScreenForSuccess() {
+        UiNodeSnapshot before = snapshot(button("Play"));
+        UiActionDispatcher.Request request = UiActionDispatcher.tap(
+                "task-transition", before, "Play", 0L);
+        UiNodeSnapshot same = snapshot(button("Play"));
+        UiNodeSnapshot changed = snapshot(button("Pause"));
+        assertFalse(request.hasObservedUiChange(same, 0L));
+        assertTrue(request.hasObservedUiChange(changed, 0L));
+        UiNodeSnapshot wrongWindow = new UiNodeSnapshot("com.example.app", 8, 0L,
+                Arrays.asList(button("Play")));
+        assertTrue(request.hasObservedUiChange(wrongWindow, 0L));
+    }
+
     @Test public void authorizationReceiptMustMatchEntireActionAndRemainUnexpired() throws Exception {
         UiActionDispatcher.Request request = UiActionDispatcher.tap(
                 "task-005", snapshot(button("Play")), "Play", 0L);
