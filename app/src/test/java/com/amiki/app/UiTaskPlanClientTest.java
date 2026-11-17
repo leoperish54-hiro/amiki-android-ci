@@ -149,6 +149,28 @@ public class UiTaskPlanClientTest {
     }
 
     @Test
+    public void rejectsGenericEditableFieldWithVerificationCodeParentLabel() throws Exception {
+        UiNodeSnapshot.Node parent = new UiNodeSnapshot.Node(
+                0, -1, "android.widget.LinearLayout", "Verification code", "", "",
+                false, false, false, false, 0, 0, 300, 70, true);
+        UiNodeSnapshot.Node field = new UiNodeSnapshot.Node(
+                1, 0, "android.widget.EditText", "", "", "com.example:id/input",
+                false, false, true, false, 0, 80, 300, 140, true);
+        UiNodeSnapshot sensitive = new UiNodeSnapshot("com.example.app", 2, 1000L,
+                Arrays.asList(parent, field), true);
+        JSONObject json = base("action");
+        json.put("action_type", "type_text");
+        json.put("target_view_id", "com.example:id/input");
+        json.put("text", "123456");
+        try {
+            UiTaskPlanClient.parseAndValidate(json, "task-001", 2, sensitive, 1001L);
+            fail("A generic field under a verification-code label must be rejected.");
+        } catch (IllegalArgumentException expected) {
+            assertNotNull(expected.getMessage());
+        }
+    }
+
+    @Test
     public void rejectsUnsupportedOrMixedActionShape() throws Exception {
         JSONObject json = base("action");
         json.put("action_type", "launch_shell");
