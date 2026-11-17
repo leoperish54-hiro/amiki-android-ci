@@ -98,6 +98,13 @@ final class UiTaskPlanClient {
     static JSONObject buildRequest(String taskId, String intent, int stepIndex,
                                    UiNodeSnapshot snapshot, String previousActionResult)
             throws Exception {
+        return buildRequest(taskId, intent, stepIndex, snapshot,
+                previousActionResult, android.os.SystemClock.uptimeMillis());
+    }
+
+    static JSONObject buildRequest(String taskId, String intent, int stepIndex,
+                                   UiNodeSnapshot snapshot, String previousActionResult,
+                                   long nowUptimeMillis) throws Exception {
         if (taskId == null || taskId.trim().isEmpty() || taskId.length() > 128
                 || intent == null || intent.trim().isEmpty() || intent.length() > 4000
                 || stepIndex < 0 || stepIndex > 15) {
@@ -107,7 +114,7 @@ final class UiTaskPlanClient {
                 "outcome_verified|outcome_unverified|stale_target_rejected|execution_failed")) {
             throw new IllegalArgumentException("The previous action result is invalid.");
         }
-        long age = android.os.SystemClock.uptimeMillis() - snapshot.capturedAtUptimeMillis;
+        long age = nowUptimeMillis - snapshot.capturedAtUptimeMillis;
         if (age < 0 || age > UiTargetResolver.MAX_SNAPSHOT_AGE_MS) {
             throw new IllegalArgumentException("The foreground UI snapshot is stale.");
         }
@@ -126,18 +133,21 @@ final class UiTaskPlanClient {
         JSONArray nodes = new JSONArray();
         for (UiNodeSnapshot.Node node : snapshot.nodes) {
             if (node == null) continue;
+            boolean visible = node.visibleToUser
+                    && node.right > node.left && node.bottom > node.top;
             JSONObject value = new JSONObject();
-            value.put("label", node.label());
-            value.put("view_id", node.viewId);
-            value.put("class_name", node.className);
+            // Do not transmit content or identifiers from hidden/off-screen
+            // nodes. Keep only anonymous hierarchy position for parent checks.
+            value.put("label", visible ? node.label() : "");
+            value.put("view_id", visible ? node.viewId : "");
+            value.put("class_name", visible ? node.className : "");
             value.put("index", node.index);
             value.put("parent_index", node.parentIndex);
-            value.put("clickable", node.clickable);
-            value.put("editable", node.editable);
-            value.put("scrollable", node.scrollable);
-            value.put("password", node.password);
-            value.put("visible", node.visibleToUser
-                    && node.right > node.left && node.bottom > node.top);
+            value.put("clickable", visible && node.clickable);
+            value.put("editable", visible && node.editable);
+            value.put("scrollable", visible && node.scrollable);
+            value.put("password", visible && node.password);
+            value.put("visible", visible);
             nodes.put(value);
         }
         if (nodes.length() == 0 || nodes.length() > UiNodeSnapshot.MAX_NODES) {
