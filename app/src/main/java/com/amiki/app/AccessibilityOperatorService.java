@@ -81,13 +81,17 @@ public final class AccessibilityOperatorService extends AccessibilityService {
     public static String lastObservedPackage() { return lastObservedPackage; }
 
     /** Request a semantic tap. The owner sees the target and approves with fresh biometrics. */
-    public static String requestTap(String exactLabel) {
+    public static String requestTap(String exactLabel, String expectedUiLabel, boolean expectedVisible) {
         DeviceTaskController task = activeTaskController;
         UiNodeSnapshot snapshot = latestSnapshot;
         if (task == null) throw new IllegalStateException("No active owner-authorized device task.");
+        UiActionDispatcher.ExpectedUiState expected = expectedVisible
+                ? UiActionDispatcher.ExpectedUiState.textVisible(expectedUiLabel)
+                : UiActionDispatcher.ExpectedUiState.textAbsent(expectedUiLabel);
         UiActionDispatcher.Request request = UiActionDispatcher.tap(
-                task.snapshot().taskId, snapshot, exactLabel);
-        return startApproval(request, "Tap “" + exactLabel + "”");
+                task.snapshot().taskId, snapshot, exactLabel, expected);
+        return startApproval(request, "Tap “" + exactLabel + "”; verify “" + expectedUiLabel
+                + "” becomes " + (expectedVisible ? "visible" : "absent"));
     }
 
     /** Request text entry by exact resource ID; password/secure fields are rejected. */
@@ -101,21 +105,30 @@ public final class AccessibilityOperatorService extends AccessibilityService {
     }
 
     /** Scroll only when the current foreground window has one unambiguous scrollable target. */
-    public static String requestScroll(boolean forward) {
+    public static String requestScroll(boolean forward, String expectedUiLabel, boolean expectedVisible) {
         DeviceTaskController task = activeTaskController;
         UiNodeSnapshot snapshot = latestSnapshot;
         if (task == null) throw new IllegalStateException("No active owner-authorized device task.");
+        UiActionDispatcher.ExpectedUiState expected = expectedVisible
+                ? UiActionDispatcher.ExpectedUiState.textVisible(expectedUiLabel)
+                : UiActionDispatcher.ExpectedUiState.textAbsent(expectedUiLabel);
         UiActionDispatcher.Request request = UiActionDispatcher.scroll(
-                task.snapshot().taskId, snapshot, forward);
-        return startApproval(request, forward ? "Scroll forward" : "Scroll backward");
+                task.snapshot().taskId, snapshot, forward, expected);
+        return startApproval(request, (forward ? "Scroll forward" : "Scroll backward")
+                + "; verify “" + expectedUiLabel + "” becomes "
+                + (expectedVisible ? "visible" : "absent"));
     }
 
-    public static String requestBack() {
+    public static String requestBack(String expectedUiLabel, boolean expectedVisible) {
         DeviceTaskController task = activeTaskController;
         UiNodeSnapshot snapshot = latestSnapshot;
         if (task == null) throw new IllegalStateException("No active owner-authorized device task.");
-        UiActionDispatcher.Request request = UiActionDispatcher.back(task.snapshot().taskId, snapshot);
-        return startApproval(request, "Navigate back");
+        UiActionDispatcher.ExpectedUiState expected = expectedVisible
+                ? UiActionDispatcher.ExpectedUiState.textVisible(expectedUiLabel)
+                : UiActionDispatcher.ExpectedUiState.textAbsent(expectedUiLabel);
+        UiActionDispatcher.Request request = UiActionDispatcher.back(task.snapshot().taskId, snapshot, expected);
+        return startApproval(request, "Navigate back; verify “" + expectedUiLabel + "” becomes "
+                + (expectedVisible ? "visible" : "absent"));
     }
 
     private static String startApproval(UiActionDispatcher.Request request, String summary) {
@@ -349,8 +362,9 @@ public final class AccessibilityOperatorService extends AccessibilityService {
                     CharSequence packageName = root.getPackageName();
                     if (packageName != null) {
                         UiNodeSnapshot after = capture(root, packageName.toString(), root.getWindowId());
-                        boolean changed = pending.request.hasObservedUiChange(after);
-                        if (changed) resultCode = "outcome_verified";
+                        boolean matched = pending.request.matchesPostcondition(
+                                after, SystemClock.uptimeMillis());
+                        if (matched) resultCode = "outcome_verified";
                         synchronized (SESSION_LOCK) {
                             latestSnapshot = after;
                             lastObservedPackage = after.packageName;
@@ -404,16 +418,25 @@ public final class AccessibilityOperatorService extends AccessibilityService {
         List<UiNodeSnapshot.Node> nodes = new ArrayList<>();
         Deque<PendingNode> queue = new ArrayDeque<>();
         queue.add(new PendingNode(root, -1, 0));
+        boolean complete = true;
         try {
             while (!queue.isEmpty() && nodes.size() < UiNodeSnapshot.MAX_NODES) {
                 PendingNode pending = queue.removeFirst();
                 AccessibilityNodeInfo node = pending.node;
                 try {
-                    if (pending.depth > 12) continue;
+                    if (pending.depth > 12) {
+                        complete = false;
+                        continue;
+                    }
                     nodes.add(toSnapshotNode(node, nodes.size(), pending.parentIndex));
-                    int childCount = Math.min(node.getChildCount(), 20);
-                    for (int i = 0; i < childCount
-                            && queue.size() + nodes.size() < UiNodeSnapshot.MAX_NODES; i++) {
+                    int rawChildCount = node.getChildCount();
+                    int childCount = Math.min(rawChildCount, 20);
+                    if (rawChildCount > childCount) complete = false;
+                    for (int i = 0; i < childCount; i++) {
+                        if (queue.size() + nodes.size() >= UiNodeSnapshot.MAX_NODES) {
+                            complete = false;
+                            break;
+                        }
                         AccessibilityNodeInfo child = node.getChild(i);
                         if (child != null) queue.addLast(new PendingNode(child, nodes.size() - 1, pending.depth + 1));
                     }
@@ -421,13 +444,14 @@ public final class AccessibilityOperatorService extends AccessibilityService {
                     if (node != root) node.recycle();
                 }
             }
+            if (!queue.isEmpty()) complete = false;
         } finally {
             while (!queue.isEmpty()) {
                 AccessibilityNodeInfo remaining = queue.removeFirst().node;
                 if (remaining != root) remaining.recycle();
             }
         }
-        return new UiNodeSnapshot(packageName, windowId, SystemClock.uptimeMillis(), nodes);
+        return new UiNodeSnapshot(packageName, windowId, SystemClock.uptimeMillis(), nodes, complete);
     }
 
     private static UiNodeSnapshot.Node toSnapshotNode(AccessibilityNodeInfo node) {
@@ -452,7 +476,7 @@ public final class AccessibilityOperatorService extends AccessibilityService {
                 text == null ? "" : text.toString(),
                 description == null ? "" : description.toString(),
                 viewId, node.isClickable(), node.isScrollable(), editable, password,
-                bounds.left, bounds.top, bounds.right, bounds.bottom);
+                bounds.left, bounds.top, bounds.right, bounds.bottom, node.isVisibleToUser());
     }
 
     private static AccessibilityNodeInfo findUniqueClickableNode(
