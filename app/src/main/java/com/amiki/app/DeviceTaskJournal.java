@@ -121,6 +121,19 @@ final class DeviceTaskJournal {
         persist();
     }
 
+    /** Record a known pre-execution authorization rejection without an unknown-outcome warning. */
+    synchronized void actionNotAuthorized(String actionId, boolean ownerDeclined, long nowMillis) {
+        if (current == null || !current.actionInFlight
+                || !current.lastActionId.equals(actionId)) {
+            throw new IllegalStateException("The authorization result does not match the pending action.");
+        }
+        current = copy(current, current.stepIndex, State.CANCELLED,
+                current.packageName, actionId,
+                ownerDeclined ? "owner_rejected" : "authorization_failed",
+                false, nowMillis);
+        persist();
+    }
+
     synchronized void actionResult(String actionId, String result, long nowMillis) {
         if (current == null || !current.actionInFlight
                 || !current.lastActionId.equals(actionId)) {
