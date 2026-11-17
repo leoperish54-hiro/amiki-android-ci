@@ -297,17 +297,16 @@ final class DeviceTaskOrchestrator {
                     || !actionId.equals(pendingActionId)) return;
             awaitingAction = false;
             pendingActionId = null;
+            try {
+                journal.actionNotAuthorized(actionId, ownerCancelled, System.currentTimeMillis());
+            } catch (RuntimeException failure) {
+                journal.needsOwnerInput("The pre-execution authorization result could not be matched to the task journal.",
+                        System.currentTimeMillis());
+            }
+            finishObservation();
             if (ownerCancelled) {
-                journal.cancel(System.currentTimeMillis());
-                finishObservation();
                 finish("You cancelled the pending action. No further step was attempted.", false);
             } else {
-                try {
-                    journal.actionResult(actionId, "execution_failed", System.currentTimeMillis());
-                } catch (RuntimeException ignored) {
-                    journal.needsOwnerInput(safeReason, System.currentTimeMillis());
-                }
-                finishObservation();
                 finish(safeReason == null || safeReason.trim().isEmpty()
                         ? "Owner authorization failed. No action was performed."
                         : safeReason, true);
