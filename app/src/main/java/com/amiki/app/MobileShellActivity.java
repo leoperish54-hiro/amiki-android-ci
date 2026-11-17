@@ -3493,6 +3493,10 @@ public class MobileShellActivity extends Activity {
         if (settings == null || system == null) {
             body.addView(t("Security information could not be verified from the backend.", 13, MUTED));
             if (error != null && !error.isEmpty()) body.addView(t(error, 11, MUTED));
+            addSettingsSection(body, "Owner authentication");
+            addSettingsActionButton(body, "Owner Security",
+                    "Enroll this device and create a UOSA owner session",
+                    v -> startActivity(new Intent(this, OwnerSecurityActivity.class)));
             addSettingsActionButton(body, "Retry", "Reload privacy and security state", v -> showPrivacySettings());
             return;
         }
