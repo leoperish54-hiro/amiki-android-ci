@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -153,7 +154,8 @@ public final class AssistantCommandService extends Service {
     }
 
     private String askCore(String message) throws Exception {
-        String conversationId = UUID.randomUUID().toString();
+        awaitCoreReady();
+        String conversationId = voiceConversationId();
         ensureConversationExists(conversationId);
 
         JSONObject request = new JSONObject();
@@ -186,6 +188,53 @@ public final class AssistantCommandService extends Service {
         } finally {
             connection.disconnect();
         }
+    }
+
+    private void awaitCoreReady() throws Exception {
+        Exception lastFailure = null;
+        for (int attempt = 0; attempt < 6; attempt++) {
+            HttpURLConnection connection = null;
+            try {
+                connection = ApiConnection.open(this, ApiEndpoints.HEALTH);
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(1500);
+                connection.setReadTimeout(1500);
+                int status = connection.getResponseCode();
+                if (status >= 200 && status < 300) return;
+                lastFailure = new java.io.IOException("Core health endpoint returned HTTP " + status + ".");
+            } catch (Exception failure) {
+                lastFailure = failure;
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+            if (attempt < 5) {
+                try {
+                    Thread.sleep(700L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new java.io.IOException("Assistant request was stopped.", interrupted);
+                }
+            }
+        }
+        throw new java.io.IOException("Amiki Core did not become ready. No device action was executed.", lastFailure);
+    }
+
+    private String voiceConversationId() {
+        SharedPreferences preferences = getSharedPreferences("amiki_assistant_voice", MODE_PRIVATE);
+        String existing = preferences.getString("conversation_id", null);
+        if (existing != null) {
+            try {
+                UUID parsed = UUID.fromString(existing);
+                if (parsed.version() == 4 && parsed.toString().equalsIgnoreCase(existing)) {
+                    return parsed.toString();
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Replace malformed local metadata with a fresh random ID.
+            }
+        }
+        String created = UUID.randomUUID().toString();
+        preferences.edit().putString("conversation_id", created).apply();
+        return created;
     }
 
     private void ensureConversationExists(String conversationId) throws Exception {
