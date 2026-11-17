@@ -2,7 +2,6 @@ package com.amiki.app;
 
 import android.app.AlertDialog;
 import android.os.Bundle;
-import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.widget.TextView;
 import android.widget.Toast;
