@@ -6,7 +6,9 @@ import java.util.Locale;
 
 /** Resolves only unique exact semantic matches from a fresh UI snapshot. */
 public final class UiTargetResolver {
-    public enum Status { FOUND, NOT_FOUND, AMBIGUOUS, INVALID_REQUEST }
+    public enum Status { FOUND, NOT_FOUND, AMBIGUOUS, INVALID_REQUEST, STALE_SNAPSHOT }
+
+    public static final long MAX_SNAPSHOT_AGE_MS = 1500L;
 
     public static final class Result {
         public final Status status;
@@ -22,9 +24,14 @@ public final class UiTargetResolver {
 
     private UiTargetResolver() { }
 
-    public static Result findUniqueClickable(UiNodeSnapshot snapshot, String requestedLabel) {
+    public static Result findUniqueClickable(UiNodeSnapshot snapshot, String requestedLabel,
+                                             long nowUptimeMillis) {
         if (snapshot == null || requestedLabel == null || requestedLabel.trim().isEmpty()) {
             return new Result(Status.INVALID_REQUEST, null, 0);
+        }
+        long age = nowUptimeMillis - snapshot.capturedAtUptimeMillis;
+        if (age < 0 || age > MAX_SNAPSHOT_AGE_MS) {
+            return new Result(Status.STALE_SNAPSHOT, null, 0);
         }
         String target = normalize(requestedLabel);
         List<UiNodeSnapshot.Node> matches = new ArrayList<>();
