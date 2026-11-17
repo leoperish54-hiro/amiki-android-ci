@@ -39,12 +39,12 @@ public final class UiActionDispatcher {
 
         private Request(String taskId, ActionType actionType, UiNodeSnapshot snapshot,
                         UiNodeSnapshot.Node target, String targetLabel,
-                        String targetViewId, String typedText) {
+                        String targetViewId, String typedText, long nowUptimeMillis) {
             if (taskId == null || taskId.trim().isEmpty() || snapshot == null
                     || snapshot.windowId < 0 || snapshot.packageName.isEmpty()) {
                 throw new IllegalArgumentException("A live task and identified foreground window are required.");
             }
-            long age = android.os.SystemClock.uptimeMillis() - snapshot.capturedAtUptimeMillis;
+            long age = nowUptimeMillis - snapshot.capturedAtUptimeMillis;
             if (age < 0 || age > UiTargetResolver.MAX_SNAPSHOT_AGE_MS) {
                 throw new IllegalArgumentException("The UI snapshot is stale; observe the screen again.");
             }
@@ -104,16 +104,24 @@ public final class UiActionDispatcher {
         }
 
         public boolean matchesFreshSnapshot(UiNodeSnapshot snapshot) {
+            return matchesFreshSnapshot(snapshot, android.os.SystemClock.uptimeMillis());
+        }
+
+        public boolean matchesFreshSnapshot(UiNodeSnapshot snapshot, long nowUptimeMillis) {
             if (snapshot == null || snapshot.windowId != windowId
                     || !packageName.equals(snapshot.packageName)) return false;
-            long age = android.os.SystemClock.uptimeMillis() - snapshot.capturedAtUptimeMillis;
+            long age = nowUptimeMillis - snapshot.capturedAtUptimeMillis;
             return age >= 0 && age <= UiTargetResolver.MAX_SNAPSHOT_AGE_MS
                     && snapshotFingerprint.equals(snapshotFingerprint(snapshot, saltHex));
         }
 
         public boolean hasObservedUiChange(UiNodeSnapshot snapshot) {
+            return hasObservedUiChange(snapshot, android.os.SystemClock.uptimeMillis());
+        }
+
+        public boolean hasObservedUiChange(UiNodeSnapshot snapshot, long nowUptimeMillis) {
             if (snapshot == null) return false;
-            long age = android.os.SystemClock.uptimeMillis() - snapshot.capturedAtUptimeMillis;
+            long age = nowUptimeMillis - snapshot.capturedAtUptimeMillis;
             if (age < 0 || age > UiTargetResolver.MAX_SNAPSHOT_AGE_MS) return false;
             return !packageName.equals(snapshot.packageName)
                     || windowId != snapshot.windowId
@@ -138,35 +146,53 @@ public final class UiActionDispatcher {
     private UiActionDispatcher() { }
 
     public static Request tap(String taskId, UiNodeSnapshot snapshot, String exactLabel) {
+        return tap(taskId, snapshot, exactLabel, android.os.SystemClock.uptimeMillis());
+    }
+
+    public static Request tap(String taskId, UiNodeSnapshot snapshot, String exactLabel,
+                              long nowUptimeMillis) {
         UiTargetResolver.Result match = UiTargetResolver.findUniqueClickable(
-                snapshot, exactLabel, android.os.SystemClock.uptimeMillis());
+                snapshot, exactLabel, nowUptimeMillis);
         requireFound(match, "A unique clickable control");
         return new Request(taskId, ActionType.TAP, snapshot, match.node,
-                exactLabel, null, null);
+                exactLabel, null, null, nowUptimeMillis);
     }
 
     public static Request typeText(String taskId, UiNodeSnapshot snapshot,
                                    String viewId, String exactText) {
+        return typeText(taskId, snapshot, viewId, exactText, android.os.SystemClock.uptimeMillis());
+    }
+
+    public static Request typeText(String taskId, UiNodeSnapshot snapshot,
+                                   String viewId, String exactText, long nowUptimeMillis) {
         if (exactText == null || exactText.trim().isEmpty() || exactText.length() > 1000) {
             throw new IllegalArgumentException("Text must contain 1 to 1000 characters.");
         }
         UiTargetResolver.Result match = UiTargetResolver.findUniqueEditableByViewId(
-                snapshot, viewId, android.os.SystemClock.uptimeMillis());
+                snapshot, viewId, nowUptimeMillis);
         requireFound(match, "A unique non-password editable field with a view ID");
         return new Request(taskId, ActionType.TYPE_TEXT, snapshot, match.node,
-                null, viewId, exactText);
+                null, viewId, exactText, nowUptimeMillis);
     }
 
     public static Request scroll(String taskId, UiNodeSnapshot snapshot, boolean forward) {
-        UiTargetResolver.Result match = UiTargetResolver.findUniqueScrollable(
-                snapshot, android.os.SystemClock.uptimeMillis());
+        return scroll(taskId, snapshot, forward, android.os.SystemClock.uptimeMillis());
+    }
+
+    public static Request scroll(String taskId, UiNodeSnapshot snapshot, boolean forward,
+                                 long nowUptimeMillis) {
+        UiTargetResolver.Result match = UiTargetResolver.findUniqueScrollable(snapshot, nowUptimeMillis);
         requireFound(match, "A unique scrollable control");
         return new Request(taskId, forward ? ActionType.SCROLL_FORWARD : ActionType.SCROLL_BACKWARD,
-                snapshot, match.node, null, null, null);
+                snapshot, match.node, null, null, null, nowUptimeMillis);
     }
 
     public static Request back(String taskId, UiNodeSnapshot snapshot) {
-        return new Request(taskId, ActionType.BACK, snapshot, null, null, null, null);
+        return back(taskId, snapshot, android.os.SystemClock.uptimeMillis());
+    }
+
+    public static Request back(String taskId, UiNodeSnapshot snapshot, long nowUptimeMillis) {
+        return new Request(taskId, ActionType.BACK, snapshot, null, null, null, null, nowUptimeMillis);
     }
 
     public static String snapshotFingerprint(UiNodeSnapshot snapshot, String saltHex) {
