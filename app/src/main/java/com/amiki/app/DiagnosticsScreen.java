@@ -527,7 +527,7 @@ public class DiagnosticsScreen {
     private JSONObject fetchJson(String url) {
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection = ApiConnection.open(activity, url);
             connection.setRequestMethod("GET"); connection.setConnectTimeout(3500); connection.setReadTimeout(3500);
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
             StringBuilder body = new StringBuilder();

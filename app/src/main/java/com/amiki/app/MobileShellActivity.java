@@ -801,7 +801,7 @@ public class MobileShellActivity extends Activity {
         new Thread(() -> {
             HttpURLConnection connection = null; File audioFile = null;
             try {
-                connection = (HttpURLConnection) new URL(ApiEndpoints.VOICE).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.VOICE);
                 connection.setRequestMethod("POST"); connection.setConnectTimeout(10000); connection.setReadTimeout(60000); connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
                 JSONObject request = new JSONObject(); request.put("text", spokenText);
@@ -906,7 +906,7 @@ public class MobileShellActivity extends Activity {
         String metadataUrl = ApiEndpoints.conversation(conversationId);
         HttpURLConnection lookup = null;
         try {
-            lookup = (HttpURLConnection) new URL(metadataUrl).openConnection();
+            lookup = ApiConnection.open(this, metadataUrl);
             lookup.setRequestMethod("GET");
             lookup.setConnectTimeout(10000);
             lookup.setReadTimeout(15000);
@@ -921,7 +921,7 @@ public class MobileShellActivity extends Activity {
 
         HttpURLConnection create = null;
         try {
-            create = (HttpURLConnection) new URL(ApiEndpoints.CONVERSATIONS).openConnection();
+            create = ApiConnection.open(this, ApiEndpoints.CONVERSATIONS);
             create.setRequestMethod("POST");
             create.setConnectTimeout(10000);
             create.setReadTimeout(15000);
@@ -973,7 +973,7 @@ public class MobileShellActivity extends Activity {
             HttpURLConnection c=null;
             try{
                 ensureConversationExists(conversationId);
-                c=(HttpURLConnection)new URL(API).openConnection();
+                c=ApiConnection.open(this, API);
                 c.setRequestMethod("POST"); c.setConnectTimeout(10000); c.setReadTimeout(270000); c.setDoOutput(true);
                 c.setRequestProperty("Content-Type","application/json; charset=UTF-8");
                 JSONObject req=new JSONObject();
@@ -1492,7 +1492,7 @@ public class MobileShellActivity extends Activity {
         new Thread(()->{
             HttpURLConnection c=null;
             try{
-                c=(HttpURLConnection)new URL(endpoint).openConnection();
+                c=ApiConnection.open(this, endpoint);
                 c.setRequestMethod("DELETE");
                 c.setConnectTimeout(5000);
                 c.setReadTimeout(10000);
@@ -3445,7 +3445,7 @@ public class MobileShellActivity extends Activity {
                 .setPositiveButton("CLEAR", (dialog, which) -> new Thread(() -> {
                     HttpURLConnection connection = null;
                     try {
-                        connection = (HttpURLConnection) new URL(endpoint).openConnection();
+                        connection = ApiConnection.open(this, endpoint);
                         connection.setRequestMethod("DELETE");
                         connection.setConnectTimeout(10000);
                         connection.setReadTimeout(15000);
@@ -4207,11 +4207,49 @@ public class MobileShellActivity extends Activity {
     }
 
     private int getCode(String endpoint)throws Exception{
-        HttpURLConnection c=null; try{c=(HttpURLConnection)new URL(endpoint).openConnection();c.setRequestMethod("GET");c.setConnectTimeout(3000);c.setReadTimeout(5000);return c.getResponseCode();}finally{if(c!=null)c.disconnect();}
+        HttpURLConnection c=null; try{c=ApiConnection.open(this, endpoint);c.setRequestMethod("GET");c.setConnectTimeout(3000);c.setReadTimeout(5000);return c.getResponseCode();}finally{if(c!=null)c.disconnect();}
     }
 
     private String getJson(String endpoint)throws Exception{
-        HttpURLConnection c=null;try{c=(HttpURLConnection)new URL(endpoint).openConnection();c.setRequestMethod("GET");c.setConnectTimeout(3000);c.setReadTimeout(7000);if(c.getResponseCode()!=200)throw new Exception();StringBuilder b=new StringBuilder();try(BufferedReader r=new BufferedReader(new InputStreamReader(c.getInputStream(),StandardCharsets.UTF_8))){String l;while((l=r.readLine())!=null)b.append(l);}return b.toString();}finally{if(c!=null)c.disconnect();}
+        HttpURLConnection c=null;
+        try {
+            c=ApiConnection.open(this, endpoint);
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(7000);
+            int status=c.getResponseCode();
+            InputStream stream=status>=200&&status<300?c.getInputStream():c.getErrorStream();
+            StringBuilder body=new StringBuilder();
+            if(stream!=null){
+                try(BufferedReader reader=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8))){
+                    String line;
+                    while((line=reader.readLine())!=null){
+                        body.append(line);
+                        if(body.length()>256*1024) throw new java.io.IOException("Core API response exceeded the safe size limit.");
+                    }
+                }
+            }
+            if(status!=200) throw new java.io.IOException(apiHttpError(status,body.toString()));
+            return body.toString();
+        } finally {
+            if(c!=null)c.disconnect();
+        }
+    }
+
+    private String apiHttpError(int status,String response){
+        String detail="request rejected";
+        try { detail=new JSONObject(response).optString("detail",detail); }
+        catch(Exception ignored) {}
+        return "HTTP "+status+": "+detail;
+    }
+
+    private String apiFailureLabel(Exception failure){
+        String message=failure.getMessage()==null?"":failure.getMessage();
+        if(message.contains("HTTP 401")) return "AUTH REQUIRED";
+        if(message.contains("HTTP 403")) return "ACCESS DENIED";
+        if(message.contains("HTTP 429")) return "RATE LIMITED";
+        if(message.matches("(?s).*HTTP 5[0-9]{2}.*")) return "CORE ERROR";
+        return "UNAVAILABLE";
     }
 
     private void fetchText(String endpoint,LinearLayout body,TextView target,String fallback){
@@ -4987,7 +5025,7 @@ public class MobileShellActivity extends Activity {
             JSONObject request,
             Map<String, String> additionalHeaders
     ) throws Exception {
-        HttpURLConnection c = (HttpURLConnection)new URL(endpoint).openConnection();
+        HttpURLConnection c = ApiConnection.open(this, endpoint);
         try {
             c.setRequestMethod("POST");
             c.setConnectTimeout(10000);
@@ -5017,7 +5055,7 @@ public class MobileShellActivity extends Activity {
     }
 
     private JSONObject putJson(String endpoint, JSONObject request) throws Exception {
-        HttpURLConnection c = (HttpURLConnection)new URL(endpoint).openConnection();
+        HttpURLConnection c = ApiConnection.open(this, endpoint);
         try {
             c.setRequestMethod("PUT");
             c.setConnectTimeout(10000);
@@ -5116,41 +5154,78 @@ public class MobileShellActivity extends Activity {
     }
 
     private void showBackendStatus(){
-        clear("Backend API"); LinearLayout b=lpView();
+        clear("Backend API");
+        LinearLayout b=lpView();
         b.addView(t("◉  Backend API",18,TEXT));
-        b.addView(t("Live connection status from Amiki's API.",13,MUTED));
-        LinearLayout metrics=new LinearLayout(this); metrics.setOrientation(LinearLayout.VERTICAL);
+        b.addView(t("Health is public. Protected endpoints require an active UOSA owner session. HTTP 401/403 means authorization is missing or insufficient, not that Core is offline.",13,MUTED));
+        LinearLayout metrics=new LinearLayout(this);
+        metrics.setOrientation(LinearLayout.VERTICAL);
         addMetric(metrics,"●","Health","CHECKING","/api/v1/health");
         addMetric(metrics,"◇","Capabilities","CHECKING","/api/v1/capabilities");
         addMetric(metrics,"⚡","System State","CHECKING","/api/v1/system-state");
-        b.addView(metrics,lp(-1,-2)); content.addView(b,lp(-1,-2));
+        b.addView(metrics,lp(-1,-2));
+        content.addView(b,lp(-1,-2));
         new Thread(()->{
-            try{
-                int health=getCode(HEALTH);
-                JSONObject caps=new JSONObject(getJson(CAPABILITIES));
-                JSONObject sys=new JSONObject(getJson(SYSTEM_STATE));
-                int enabled=0; java.util.Iterator<String> it=caps.keys(); while(it.hasNext()) if(caps.optBoolean(it.next(),false)) enabled++;
-                String state=runtimeState(sys);
-                final String h=health==200?"ONLINE":"OFFLINE", cp=enabled+" ENABLED", st=state;
-                handler.post(()->{setMetric(metrics,0,h,"Backend health");setMetric(metrics,1,cp,"Capability registry");setMetric(metrics,2,st,"System state");online.setText("● "+h);online.setTextColor(health==200?Color.rgb(100,230,130):Color.rgb(255,100,100));});
-            }catch(Exception e){
-                handler.post(()->{setMetric(metrics,0,"OFFLINE","Backend health unavailable");setMetric(metrics,1,"UNKNOWN","Capability registry unavailable");setMetric(metrics,2,"UNKNOWN","System state unavailable");});
+            int health=0;
+            String healthLabel="UNAVAILABLE";
+            String capabilityLabel="UNKNOWN";
+            String systemLabel="UNKNOWN";
+            try {
+                health=getCode(HEALTH);
+                healthLabel=health==200?"ONLINE":"HTTP "+health;
+            } catch(Exception failure) {
+                healthLabel="UNREACHABLE";
             }
+            try {
+                JSONObject caps=new JSONObject(getJson(CAPABILITIES));
+                int enabled=0;
+                java.util.Iterator<String> it=caps.keys();
+                while(it.hasNext()) if(caps.optBoolean(it.next(),false)) enabled++;
+                capabilityLabel=enabled+" ENABLED";
+            } catch(Exception failure) {
+                capabilityLabel=apiFailureLabel(failure);
+            }
+            try {
+                JSONObject sys=new JSONObject(getJson(SYSTEM_STATE));
+                systemLabel=runtimeState(sys);
+            } catch(Exception failure) {
+                systemLabel=apiFailureLabel(failure);
+            }
+            final String h=healthLabel, cp=capabilityLabel, st=systemLabel;
+            final int healthCode=health;
+            handler.post(()->{
+                setMetric(metrics,0,h,"Backend health");
+                setMetric(metrics,1,cp,"Capability registry");
+                setMetric(metrics,2,st,"System state");
+                online.setText("● "+h);
+                online.setTextColor(healthCode==200?Color.rgb(100,230,130):Color.rgb(255,100,100));
+            });
         }).start();
     }
 
     private void loadProjectState(LinearLayout metrics){
         new Thread(()->{
-            try{
-                JSONObject sys=new JSONObject(getJson(SYSTEM_STATE));
-                String state=runtimeState(sys);
-                String cap=sys.optString("active_capability",sys.optString("capability","NONE")).toUpperCase();
-                int health=getCode(HEALTH);
-                final String fs=state, fc=cap, fh=health==200?"ONLINE":"OFFLINE";
-                handler.post(()->{setMetric(metrics,0,fs,"Backend system state");setMetric(metrics,1,fc,"Active capability");setMetric(metrics,2,fh,"Backend health");});
-            }catch(Exception e){
-                handler.post(()->{setMetric(metrics,0,"UNAVAILABLE","System state endpoint");setMetric(metrics,1,"—","No active capability");setMetric(metrics,2,"OFFLINE","Backend health");});
+            int health=0;
+            String stateLabel="UNAVAILABLE";
+            String capabilityLabel="—";
+            try {
+                health=getCode(HEALTH);
+            } catch(Exception ignored) {
+                health=0;
             }
+            try {
+                JSONObject sys=new JSONObject(getJson(SYSTEM_STATE));
+                stateLabel=runtimeState(sys);
+                capabilityLabel=sys.optString("active_capability",sys.optString("capability","NONE")).toUpperCase();
+            } catch(Exception failure) {
+                stateLabel=apiFailureLabel(failure);
+            }
+            final String fs=stateLabel, fc=capabilityLabel, fh=health==200?"ONLINE":(health==0?"UNREACHABLE":"HTTP "+health);
+            handler.post(()->{
+                setMetric(metrics,0,fs,"Backend system state");
+                setMetric(metrics,1,fc,"Active capability");
+                setMetric(metrics,2,fh,"Backend health");
+            });
         }).start();
     }
 
@@ -5297,7 +5372,7 @@ public class MobileShellActivity extends Activity {
             String requestId,
             String conversationId) throws Exception {
         String boundary="----AmikiBoundary"+System.currentTimeMillis();
-        HttpURLConnection connection=(HttpURLConnection)new URL(API+"/attachments").openConnection();
+        HttpURLConnection connection=ApiConnection.open(this, API+"/attachments");
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(10000);
@@ -5385,7 +5460,7 @@ public class MobileShellActivity extends Activity {
         return "attachment";
     }
 
-    private void checkHealth(){new Thread(()->{try{HttpURLConnection c=(HttpURLConnection)new URL(HEALTH).openConnection();c.setRequestMethod("GET");c.setConnectTimeout(2000);c.setReadTimeout(2000);boolean ok=c.getResponseCode()==200;handler.post(()->{backendHealthKnown=true;backendOnline=ok;online.setText(ok?"● ONLINE":"● OFFLINE");online.setTextColor(ok?Color.rgb(100,230,130):Color.rgb(255,100,100));if(active==0)refreshOrbStatus();});}catch(Exception e){handler.post(()->{backendHealthKnown=true;backendOnline=false;online.setText("● OFFLINE");online.setTextColor(Color.rgb(255,100,100));if(active==0)refreshOrbStatus();});}}).start();}
+    private void checkHealth(){new Thread(()->{try{HttpURLConnection c=ApiConnection.open(this, HEALTH);c.setRequestMethod("GET");c.setConnectTimeout(2000);c.setReadTimeout(2000);boolean ok=c.getResponseCode()==200;handler.post(()->{backendHealthKnown=true;backendOnline=ok;online.setText(ok?"● ONLINE":"● OFFLINE");online.setTextColor(ok?Color.rgb(100,230,130):Color.rgb(255,100,100));if(active==0)refreshOrbStatus();});}catch(Exception e){handler.post(()->{backendHealthKnown=true;backendOnline=false;online.setText("● OFFLINE");online.setTextColor(Color.rgb(255,100,100));if(active==0)refreshOrbStatus();});}}).start();}
 
     private void refreshOrbStatus() {
         View dashboardAtmosphere = content.findViewWithTag("amiki_dashboard_atmosphere");

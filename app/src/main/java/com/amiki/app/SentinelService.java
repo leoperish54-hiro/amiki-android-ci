@@ -166,7 +166,7 @@ public final class SentinelService extends Service {
     private HealthCheck healthCheck() {
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URL(HEALTH_URL).openConnection();
+            connection = ApiConnection.open(this, HEALTH_URL);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(2500);
             connection.setReadTimeout(2500);
@@ -320,7 +320,7 @@ public final class SentinelService extends Service {
             JSONObject request = new JSONObject();
             request.put("events", batch);
 
-            connection = (HttpURLConnection) new URL(SYNC_URL).openConnection();
+            connection = ApiConnection.open(this, SYNC_URL);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(2500);
             connection.setReadTimeout(5000);

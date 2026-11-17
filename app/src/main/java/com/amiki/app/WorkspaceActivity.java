@@ -421,7 +421,7 @@ public class WorkspaceActivity extends Activity {
                         + URLEncoder.encode(query, "UTF-8")
                         + "&path=" + URLEncoder.encode(".", "UTF-8")
                         + "&project_id=" + URLEncoder.encode(projectId, "UTF-8");
-                connection = (HttpURLConnection) new URL(url).openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(20000);
@@ -558,7 +558,7 @@ public class WorkspaceActivity extends Activity {
                 String url = ApiEndpoints.workspace("/git/diff?project_id=")
                         + URLEncoder.encode(projectId, "UTF-8")
                         + "&staged=" + (staged ? "true" : "false");
-                connection = (HttpURLConnection) new URL(url).openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
@@ -628,7 +628,7 @@ public class WorkspaceActivity extends Activity {
             try {
                 String url = ApiEndpoints.workspace("/git?project_id=")
                         + URLEncoder.encode(projectId, "UTF-8");
-                connection = (HttpURLConnection) new URL(url).openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
@@ -962,8 +962,7 @@ public class WorkspaceActivity extends Activity {
                 request.put("content", "");
                 request.put("approved", true);
 
-                connection = (HttpURLConnection) new URL(
-                        ApiEndpoints.workspace("/new-file")).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.workspace("/new-file"));
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
@@ -1029,7 +1028,7 @@ public class WorkspaceActivity extends Activity {
         HttpURLConnection connection = null;
         try {
             URL url = new URL(ApiEndpoints.workspace(endpoint) + "?path=" + encodedPath + "&project_id=" + encodedProject);
-            connection = (HttpURLConnection) url.openConnection();
+            connection = ApiConnection.open(this, url);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(12000);
@@ -1319,8 +1318,7 @@ public class WorkspaceActivity extends Activity {
     private JSONObject postWorkspaceJson(String endpoint, JSONObject request) throws Exception {
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URL(
-                    ApiEndpoints.workspace(endpoint)).openConnection();
+            connection = ApiConnection.open(this, ApiEndpoints.workspace(endpoint));
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(12000);
@@ -1577,8 +1575,7 @@ public class WorkspaceActivity extends Activity {
                 request.put("project_id", projectId);
                 request.put("approved", true);
 
-                connection = (HttpURLConnection) new URL(
-                        ApiEndpoints.workspace("/file")).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.workspace("/file"));
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
@@ -1669,8 +1666,7 @@ public class WorkspaceActivity extends Activity {
                 request.put("command", command);
                 request.put("project_id", projectId);
                 request.put("approved", approved);
-                connection = (HttpURLConnection) new URL(
-                        ApiEndpoints.workspace("/command")).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.workspace("/command"));
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(40000); // Test command timeout is 30 seconds.
@@ -1757,8 +1753,7 @@ public class WorkspaceActivity extends Activity {
                 JSONObject request = new JSONObject();
                 request.put("path", path);
                 request.put("project_id", projectId);
-                connection = (HttpURLConnection) new URL(
-                        ApiEndpoints.workspace("/check")).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.workspace("/check"));
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
@@ -1859,8 +1854,7 @@ public class WorkspaceActivity extends Activity {
                 request.put("project_id", projectId);
                 request.put("approved", true);
 
-                connection = (HttpURLConnection) new URL(
-                        ApiEndpoints.workspace("/execute")).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.workspace("/execute"));
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(15000);
@@ -1946,8 +1940,7 @@ public class WorkspaceActivity extends Activity {
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
-                connection = (HttpURLConnection) new URL(
-                        ApiEndpoints.workspace("/projects")).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.workspace("/projects"));
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
@@ -2051,8 +2044,7 @@ public class WorkspaceActivity extends Activity {
                 request.put("name", name);
                 request.put("template", template);
                 request.put("approved", true);
-                connection = (HttpURLConnection) new URL(
-                        ApiEndpoints.workspace("/projects")).openConnection();
+                connection = ApiConnection.open(this, ApiEndpoints.workspace("/projects"));
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
@@ -2294,7 +2286,7 @@ public class WorkspaceActivity extends Activity {
                 context.put("goal", "Use only accessible, verified tools. State repository access limits honestly. Never claim edits, tests, or builds occurred without actual evidence.");
                 request.put("context", context);
 
-                connection = (HttpURLConnection) new URL(DIRECT_AGENT).openConnection();
+                connection = ApiConnection.open(this, DIRECT_AGENT);
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(45000);

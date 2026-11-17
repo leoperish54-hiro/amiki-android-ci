@@ -138,7 +138,7 @@ public class MainActivity extends Activity {
 
             try {
                 URL url = new URL(DATABASE_STATUS_URL);
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(5000);
@@ -465,7 +465,7 @@ public class MainActivity extends Activity {
 
             try {
                 URL url = new URL(endpoint);
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("DELETE");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(10000);
@@ -596,7 +596,7 @@ public class MainActivity extends Activity {
 
             try {
                 URL url = new URL(SYSTEM_STATE_URL);
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(5000);
@@ -1262,7 +1262,7 @@ public class MainActivity extends Activity {
 
             try {
                 URL url = new URL(CAPABILITIES_URL);
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(5000);
@@ -1405,7 +1405,7 @@ public class MainActivity extends Activity {
 
                 try {
                     URL url = new URL(HEALTH_URL);
-                    connection = (HttpURLConnection) url.openConnection();
+                    connection = ApiConnection.open(this, url);
                     connection.setRequestMethod("GET");
                     connection.setConnectTimeout(1000);
                     connection.setReadTimeout(1000);
@@ -2416,9 +2416,12 @@ public class MainActivity extends Activity {
     }
 
     private String formatApiError(int statusCode, String errorBody) {
-        if (statusCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
-                statusCode == HttpURLConnection.HTTP_FORBIDDEN) {
-            return "The Amiki service rejected the request. Check the backend configuration.";
+        if (statusCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
+            return "The Core API requires an active UOSA owner session. Open Owner Security and create a fresh L1 session.";
+        }
+
+        if (statusCode == HttpURLConnection.HTTP_FORBIDDEN) {
+            return "The UOSA session does not have the required scope or fresh biometric authorization for this action.";
         }
 
         if (statusCode == 429) {
@@ -2445,7 +2448,7 @@ public class MainActivity extends Activity {
         URL url = new URL(ATTACHMENTS_API_URL);
 
         HttpURLConnection connection =
-                (HttpURLConnection) url.openConnection();
+                ApiConnection.open(this, url);
         activeConnection = connection;
 
         connection.setRequestMethod("POST");
@@ -2653,7 +2656,7 @@ public class MainActivity extends Activity {
             HttpURLConnection connection = null;
             try {
                 URL url = new URL(DIRECT_AGENT_URL);
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(10000);
                 connection.setReadTimeout(30000);
@@ -2853,7 +2856,7 @@ public class MainActivity extends Activity {
                     );
                 } else {
                     URL url = new URL(API_URL);
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 activeConnection = connection;
 
                 connection.setRequestMethod("POST");
@@ -3036,7 +3039,7 @@ public class MainActivity extends Activity {
 
                 try {
                     URL url = new URL(HEALTH_URL);
-                    connection = (HttpURLConnection) url.openConnection();
+                    connection = ApiConnection.open(this, url);
                     connection.setRequestMethod("GET");
                     connection.setConnectTimeout(1000);
                     connection.setReadTimeout(1000);
@@ -3106,7 +3109,7 @@ public class MainActivity extends Activity {
 
             try {
                 URL url = new URL(MEMORY_URL);
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(10000);
@@ -3297,7 +3300,7 @@ public class MainActivity extends Activity {
 
                 URL url = new URL(endpoint);
 
-                connection = (HttpURLConnection) url.openConnection();
+                connection = ApiConnection.open(this, url);
                 connection.setRequestMethod("DELETE");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(10000);
