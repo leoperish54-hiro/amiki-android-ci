@@ -34,7 +34,7 @@ final class UiActionNetworkClient {
                 body.put("package_name", request.packageName);
                 if (request.payloadSha256 != null) body.put("payload_sha256", request.payloadSha256);
                 body.put("result_code", resultCode);
-                body.put("snapshot_age_ms", 0);
+                body.put("snapshot_age_ms", request.snapshotAgeMs);
                 body.put("snapshot_fingerprint", request.snapshotFingerprint);
                 body.put("target_fingerprint", request.targetFingerprint);
                 body.put("task_id", request.taskId);
