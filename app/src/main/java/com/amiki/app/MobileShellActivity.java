@@ -2632,6 +2632,13 @@ public class MobileShellActivity extends Activity {
             body.addView(warning, warningParams);
         }
 
+        String assistantSummary = !AssistantRoleGateway.isAvailable(this)
+                ? AssistantRoleGateway.status(this)
+                : AssistantRoleGateway.isHeld(this)
+                    ? "System assistant active • invoke by Android gesture • no wake word"
+                    : "Configure system assistant invocation while Amiki is closed";
+        addSettingsRow(body, "🎙", "Voice & Background Assistant", assistantSummary,
+                v -> requestAssistantRole());
         addSettingsRow(body, "☼", "Appearance", "Theme & display", v -> showAppearanceSettings());
         String modelSummary = model == null
                 ? "Live model details unavailable"
