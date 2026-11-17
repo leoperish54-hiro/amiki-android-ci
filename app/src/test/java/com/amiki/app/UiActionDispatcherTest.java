@@ -114,7 +114,7 @@ public class UiActionDispatcherTest {
                 "task-semantic-visible", before, "Play",
                 UiActionDispatcher.ExpectedUiState.textVisible("Pause"), 0L);
         assertTrue(request.matchesPostcondition(snapshot(button("Pause")), 0L));
-        assertFalse(request.matchesPostcondition(snapshot(button("Play"), button("Pause")), 0L));
+        assertTrue(request.matchesPostcondition(snapshot(button("Play"), button("Pause")), 0L));
         assertFalse(request.matchesPostcondition(snapshot(button("Play")), 0L));
     }
 
@@ -139,6 +139,14 @@ public class UiActionDispatcherTest {
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("incomplete"));
         }
+    }
+
+    @Test public void alreadyVisibleExpectedLabelDoesNotCountAsANewTransition() {
+        UiNodeSnapshot before = snapshot(button("Play"), button("Pause"));
+        UiActionDispatcher.Request request = UiActionDispatcher.tap(
+                "task-already-visible", before, "Play",
+                UiActionDispatcher.ExpectedUiState.textVisible("Pause"), 0L);
+        assertFalse(request.matchesPostcondition(snapshot(button("Play"), button("Pause")), 0L));
     }
 
     @Test public void absentPostconditionRequiresTheLabelToDisappear() {
