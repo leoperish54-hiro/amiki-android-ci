@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: leoperish54-hiro/Cipher
-          ref: a9ae02b4ef29636c8b1f4042a59a5089de5a5f87
+          ref: d5663dd40cb8d94f743611717d98044e36ee40ca
           token: ${{ secrets.AMIKI_PRIVATE_REPO_READ_TOKEN }}
           path: private/Cipher
           persist-credentials: false
