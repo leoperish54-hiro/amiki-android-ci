@@ -254,4 +254,5 @@ public final class UiActionDispatcher {
 
     private static String quote(String value) {
         return JSONObject.quote(value);
-    }}
+    }
+}
