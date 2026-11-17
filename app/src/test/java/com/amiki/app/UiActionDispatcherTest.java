@@ -179,11 +179,21 @@ public class UiActionDispatcherTest {
         receipt.put("payload_sha256", JSONObject.NULL);
         receipt.put("postcondition_type", request.postconditionType);
         receipt.put("postcondition_sha256", request.postconditionSha256);
+        receipt.put("cipher_audit_event_id", request.actionId + ".authorized");
+        receipt.put("cipher_audit_sequence", 1L);
+        receipt.put("cipher_audit_hash", "a".repeat(64));
         receipt.put("expires_at", System.currentTimeMillis() / 1000L + 5);
         assertTrue(request.matchesReceipt(receipt));
         receipt.put("package_name", "com.attacker.app");
         assertFalse(request.matchesReceipt(receipt));
         receipt.put("package_name", request.packageName);
+        receipt.put("postcondition_sha256", request.postconditionSha256);
+        receipt.put("cipher_audit_sequence", 0L);
+        assertFalse(request.matchesReceipt(receipt));
+        receipt.put("cipher_audit_sequence", 1L);
+        receipt.put("cipher_audit_event_id", "forged.authorized");
+        assertFalse(request.matchesReceipt(receipt));
+        receipt.put("cipher_audit_event_id", request.actionId + ".authorized");
         receipt.put("postcondition_sha256", "f".repeat(64));
         assertFalse(request.matchesReceipt(receipt));
     }
