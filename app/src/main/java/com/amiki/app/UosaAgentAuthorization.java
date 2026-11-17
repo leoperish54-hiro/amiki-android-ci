@@ -54,6 +54,7 @@ final class UosaAgentAuthorization {
     }
 
     static void complete(String requestId, String token, String error) {
+        if (requestId == null || requestId.trim().isEmpty()) return;
         Pending pending = PENDING.remove(requestId);
         if (pending == null) return;
         pending.token = token;
