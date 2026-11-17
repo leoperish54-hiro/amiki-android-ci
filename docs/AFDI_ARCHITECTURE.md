@@ -53,13 +53,42 @@ The useful architectural lesson is not to give the model unrestricted Android ac
 
 The gateway's capability snapshot reports Android hardware-feature declarations and existing runtime-permission grants. It does not request permissions and does not claim that a feature's service or sensor is currently operational.
 
-## 5. Later AFDI stages
+## 5. Universal cross-app operator — primary AFDI direction
 
-1. Unified native device-action contract: consolidate current chat-local actions and backend-planned actions behind one action specification and native dispatcher. Registry and executor must be tested together so no declared action is a placeholder.
-2. Broader Android controls: introduce one capability at a time, with precise permission requests, explicit authorization scopes, local confirmation where the action changes state, and a read-back or bounded outcome receipt.
-3. Accessibility-based app interaction: only after a separately reviewed design. Screen text and other app content are untrusted data, never agent instructions. Bind actions to a fresh observation, reject stale snapshots, protect sensitive apps/fields, and provide a visible STOP control and durable task checkpoints before multi-step execution.
-4. System-level integrations: use public Android APIs, intents, and supported role/permission flows first. Report OEM/API restrictions rather than claiming privileged control.
-5. Background/voice operation: defer until foreground control is reliable, interruptible, and benchmarked on the target device. No always-on microphone or broad background automation is introduced by this slice.
+The long-term target is one generic Android UI observation and interaction engine that can operate across compatible installed apps. Spotify and WhatsApp are examples for acceptance testing, not an app allowlist or the limit of the feature. The same engine should support workflows such as searching YouTube, navigating and researching in Chrome, navigating Instagram, selecting items in Gallery, searching Maps, and other owner-requested tasks wherever Android and the target app expose the required UI.
+
+The operator is composed of:
+- **Screen observer:** explicit, revocable AccessibilityService; bounded foreground-window snapshots; semantic node metadata; sensitive-field redaction.
+- **Target resolver:** identify controls by semantic role, label, hierarchy and context; reject ambiguity and stale snapshots.
+- **Interaction engine:** typed tap, text-entry, scroll, swipe, focus and back actions; fresh node revalidation before dispatch.
+- **Task runtime:** task-bound execution, checkpoints, STOP, recovery and owner-input states.
+- **Outcome verifier:** fresh post-action observation and task-specific success checks.
+- **Policy gateway:** capability registry, UOSA scopes, Android permissions, risk checks, fresh approval and Cipher audit receipts.
+
+AccessibilityService is not unrestricted access to app internals. It can only use UI exposed through Android's accessibility framework. Secure windows, authentication, CAPTCHAs, protected content, app restrictions and OEM behavior may block a task; Amiki must not bypass them or claim success.
+
+App-specific adapters are optional optimizations for official, stable interfaces. They must use the same typed dispatcher and policy controls; generic UI operation remains the baseline architecture.
+
+### Accessibility privacy and safety
+
+- The owner explicitly enables and can revoke the service in Android Settings.
+- The service is task-bound; no ambient monitoring or automatic interaction outside an active owner-requested task.
+- Observe only the foreground UI needed for the active step; do not store full screen trees or transmit raw screen content by default.
+- Exclude password fields, secure windows, authentication codes, payment credentials and similarly sensitive surfaces.
+- Treat all app UI, webpages, notifications and OCR as untrusted data, never as instructions or authorization.
+- Re-observe and revalidate immediately before each action; discard stale snapshots after window/package changes.
+- Require fresh owner approval for consequential actions such as sending, posting, purchasing, calling, deleting or sharing.
+- STOP prevents new actions but cannot reverse a side effect already accepted by another app.
+- No root, hidden APIs, permission bypasses or attempts to defeat app security.
+
+## 6. Later AFDI stages
+
+1. Unify the native device-action contract and dispatcher; no advertised placeholder capabilities.
+2. Build the universal AccessibilityService observer, semantic target resolver and typed interaction engine.
+3. Connect the task controller, bounded journal, STOP, recovery and outcome verifier to real Android execution.
+4. Validate generic workflows across a cross-app acceptance matrix (including YouTube, Chrome, Instagram, Gallery, Maps, Spotify and WhatsApp).
+5. Add optional official app adapters and public-API system controls only where they improve reliability.
+6. Defer background and voice operation until foreground cross-app control is reliable, interruptible and benchmarked.
 
 ## 6. Explicit non-goals for this change
 
