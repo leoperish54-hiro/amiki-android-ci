@@ -112,7 +112,7 @@ public final class DeviceBridge {
             message.append("\nArtist: ").append(args.optString("artist", "(missing)"));
             message.append("\nThis opens Spotify search; it does not start playback.");
         } else if ("whatsapp_compose".equals(action)) {
-            message.append("\nRecipient phone: ").append(args.optString("phone_number", "(missing)"));
+            message.append("\nContact to resolve: ").append(args.optString("contact_name", "(missing)"));
             message.append("\nExact message: ").append(args.optString("message", "(missing)"));
             message.append("\nThis opens a compose screen; you must review and send in WhatsApp.");
         } else if ("speak".equals(action)) {
@@ -163,8 +163,12 @@ public final class DeviceBridge {
                 new CrossAppIntentGateway(context).openSpotifySearch(
                         args.optString("track", ""), args.optString("artist", ""), callback::onResult);
             } else if ("whatsapp_compose".equals(action)) {
-                new CrossAppIntentGateway(context).openWhatsAppCompose(
-                        args.optString("phone_number", ""), args.optString("message", ""), callback::onResult);
+                if (context instanceof MobileShellActivity) {
+                    ((MobileShellActivity) context).executeWhatsAppCompose(
+                            args.optString("contact_name", ""), args.optString("message", ""), callback);
+                } else {
+                    callback.onResult("WhatsApp contact selection requires the active Amiki shell. No message was prepared.");
+                }
             } else if ("speak".equals(action)) {
                 String text = args.getString("text");
                 if (context instanceof MobileShellActivity) {
