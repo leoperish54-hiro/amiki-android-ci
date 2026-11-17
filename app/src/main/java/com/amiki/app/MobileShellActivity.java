@@ -3680,6 +3680,8 @@ public class MobileShellActivity extends Activity {
             }
         }).start();
 
+        addLargeCard(body,"📦  Installed Apps","Discover and open apps",v ->
+                startActivity(new Intent(this, InstalledAppsActivity.class)));
         addLargeCard(body,"🌐  Open Browser","Ask the device agent to open a safe URL");
         addLargeCard(body,"🔊  Speak Test","Use Amiki TTS");
         addLargeCard(body,"↗  Share Test","Open Android share sheet");
