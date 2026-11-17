@@ -50,6 +50,15 @@ public final class AssistantEntryActivity extends Activity {
             return true;
         }
 
+        if (parsed.action != DeviceCommandParser.Action.OPEN_APP
+                && parsed.action != DeviceCommandParser.Action.OPEN_CHROME) {
+            Toast.makeText(this,
+                    "That device-control action is not connected to the background operator yet. No action was performed.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return true;
+        }
+
         String requestedLabel;
         if (parsed.action == DeviceCommandParser.Action.OPEN_APP) {
             requestedLabel = parsed.argument;
@@ -153,6 +162,13 @@ public final class AssistantEntryActivity extends Activity {
         // bounded foreground service and normal Core chat path; the main Amiki
         // shell is never opened just to receive a voice command.
         if (handleDirectLaunch(command)) return;
+        if (AssistantRequestClassifier.isDeviceActionRequest(command)) {
+            Toast.makeText(this,
+                    "That device-control action is not connected to the background operator yet. No action was performed.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
         TermuxBackendLauncher.start(this);
         try {
             AssistantCommandService.start(this, command);
