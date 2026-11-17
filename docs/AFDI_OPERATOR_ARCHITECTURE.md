@@ -137,6 +137,9 @@ Background invocation is a **release requirement**, not an optional post-release
 - The handoff does not create a parallel action executor. Existing Core planning and local approval remain in the path.
 - The speech command is bounded and rejected when empty, oversized, or containing unsupported control characters.
 - The assistant role request explains that this slice does **not** enable ambient listening or an always-listening “Amiki” wake word.
+- Natural-language `open <installed app label>` commands now resolve against the current on-device MAIN/LAUNCHER inventory. Resolution requires an exact display-name match; duplicates require an explicit choice; no match is reported without launching anything.
+- Before launch, Amiki shows the selected label and package and requires local owner confirmation. The package is re-checked as launchable immediately before the launch request. This opens the app only; it does not inspect or control its content.
+- Compound requests such as `open Spotify and play Lucid Dreams` are deliberately not misclassified as an app name by the local parser; they remain for the Core planner. Playback and in-app navigation are not implemented by this slice.
 
 This is a system-assistant **gesture invocation** foundation. It is not evidence that an always-on hotword works on the Infinix HOT 9.
 
