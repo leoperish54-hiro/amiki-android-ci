@@ -1,6 +1,6 @@
 package com.amiki.app;
 
-import android.app.Activity;
+import androidx.fragment.app.FragmentActivity;
 import android.content.Intent;
 import android.app.AlertDialog;
 import android.graphics.Color;
@@ -44,7 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-public class LearningReviewActivity extends Activity {
+public class LearningReviewActivity extends FragmentActivity {
     private static final int BG = 0xFF0E1224;
     private static final int PANEL = 0xFF171C33;
     private static final int CARD = 0xFF1D2340;
@@ -178,6 +178,13 @@ public class LearningReviewActivity extends Activity {
             button.setBackground(roundRect(selected ? PURPLE : CARD, 10));
             button.setTextColor(TEXT);
         }
+    }
+
+    private void updateTokenStatus() {
+        boolean active = OwnerSessionVault.hasToken(this);
+        statusView.setText(active
+                ? "An encrypted UOSA L1 session is available on this device."
+                : "No active UOSA session. Enroll this device and create a fresh L1 session in Owner Security.");
     }
 
     private void refreshQueue() {
