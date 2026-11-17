@@ -26,9 +26,10 @@ public final class AssistantEntryActivity extends Activity {
         super.onCreate(state);
         if (!Intent.ACTION_ASSIST.equals(getIntent().getAction())
                 || !AssistantRoleGateway.isHeld(this)) {
-            // The exported assist handler is inert unless the OS currently
-            // grants Amiki the assistant role. An ordinary app cannot spoof
-            // the assistant gesture by sending ACTION_ASSIST itself.
+            // The exported assist handler is inert unless Amiki currently
+            // holds the assistant role. ACTION_ASSIST is an intent contract,
+            // not a cryptographic proof of caller identity; all consequential
+            // UI actions still require the normal owner/UOSA approval path.
             finish();
             return;
         }
