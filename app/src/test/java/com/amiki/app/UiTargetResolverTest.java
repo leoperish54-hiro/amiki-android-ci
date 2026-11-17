@@ -53,6 +53,7 @@ public class UiTargetResolverTest {
         UiNodeSnapshot.Node editable = node(0, "secret text", "hint", true, true, false);
         UiNodeSnapshot.Node password = node(1, "secret password", "password", true, false, true);
         assertEquals("", editable.text);
+        assertEquals("", editable.contentDescription);
         assertEquals("", password.text);
         assertEquals("", password.contentDescription);
     }
