@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: leoperish54-hiro/Amiki-
-          ref: 873cb7d944979365a553d1a017135ac0d633b2d7
+          ref: d8ca86164ccba03b10e07296f3d5633a3502d25e
           token: ${{ secrets.AMIKI_PRIVATE_REPO_READ_TOKEN }}
           path: private/Amiki-Core
           persist-credentials: false
