@@ -3686,6 +3686,14 @@ public class MobileShellActivity extends Activity {
 
         addLargeCard(body,"📦  Installed Apps","Discover and open apps",v ->
                 startActivity(new Intent(this, InstalledAppsActivity.class)));
+        addLargeCard(body,"♿  Accessibility Operator Setup","Explicitly enable Amiki in Android Accessibility settings",v ->
+                showAccessibilityOperatorSetup());
+        addLargeCard(body,"◉  Arm One-Task UI Observation","Observe foreground app UI only while a task is armed",v ->
+                armAccessibilityObservation());
+        addLargeCard(body,"■  STOP UI Observation","Immediately stop and clear the in-memory snapshot",v -> {
+            AccessibilityOperatorService.stopObservation();
+            Toast.makeText(this,"UI observation stopped.",Toast.LENGTH_SHORT).show();
+        });
         addLargeCard(body,"🌐  Open Browser","Ask the device agent to open a safe URL");
         addLargeCard(body,"🔊  Speak Test","Use Amiki TTS");
         addLargeCard(body,"↗  Share Test","Open Android share sheet");
@@ -3693,6 +3701,52 @@ public class MobileShellActivity extends Activity {
         addLargeCard(body,"⚙  Device State","Read Android version and API");
         addLargeCard(body,"⚙  Android Settings","Open device settings");
         content.addView(body,lp(-1,-2));
+    }
+
+    private boolean isAccessibilityOperatorEnabled() {
+        String enabled = android.provider.Settings.Secure.getString(
+                getContentResolver(),
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        if (enabled == null) return false;
+        String serviceName = AccessibilityOperatorService.class.getName().toLowerCase(Locale.ROOT);
+        return enabled.toLowerCase(Locale.ROOT).contains(serviceName);
+    }
+
+    private void showAccessibilityOperatorSetup() {
+        new AlertDialog.Builder(this)
+                .setTitle("Enable Amiki UI Operator")
+                .setMessage("Amiki needs your explicit permission to inspect the foreground app's accessible interface during a task you start. In this observation-only stage it does not tap, type, scroll, monitor continuously, save screen content, or upload it. You can disable the service at any time in Android Accessibility settings.\n\nOnly enable this if you understand and want this capability.")
+                .setNegativeButton("Not now", null)
+                .setPositiveButton("Open Android Settings", (dialog, which) -> {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    } catch (Exception failure) {
+                        Toast.makeText(this, "Android Accessibility settings could not be opened.", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
+    }
+
+    private void armAccessibilityObservation() {
+        if (!isAccessibilityOperatorEnabled()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Accessibility permission required")
+                    .setMessage("Enable Amiki UI Operator in Android Accessibility settings first. Observation remains off until you explicitly arm a task here.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Open settings", (dialog, which) -> showAccessibilityOperatorSetup())
+                    .show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Arm one-task observation?")
+                .setMessage("Amiki will temporarily inspect the foreground app's accessible UI after you leave this screen. No taps or other actions will be performed. Press STOP in Amiki to end observation. The captured snapshot stays in memory only.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Arm observation", (dialog, which) -> {
+                    AccessibilityOperatorService.armObservation(
+                            new DeviceTaskController(UUID.randomUUID().toString()));
+                    Toast.makeText(this, "One-task UI observation armed. Open the target app, then return to Amiki and press STOP.", Toast.LENGTH_LONG).show();
+                })
+                .show();
     }
 
     private void showBatteryState(){
