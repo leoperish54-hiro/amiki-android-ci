@@ -1,7 +1,9 @@
 package com.amiki.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
+import android.provider.Settings;
 import android.os.Bundle;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -28,6 +30,72 @@ public final class AssistantEntryActivity extends Activity {
         }
         if (state == null) startRecognition();
         else recognitionLaunched = state.getBoolean("recognition_launched", false);
+    }
+
+    private boolean handleDirectLaunch(String command) {
+        DeviceCommandParser.Command parsed = DeviceCommandParser.parse(command);
+        if (parsed == null) return false;
+
+        if (parsed.action == DeviceCommandParser.Action.OPEN_SETTINGS) {
+            try {
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
+            } catch (RuntimeException failure) {
+                Toast.makeText(this, "Android Settings could not be opened.", Toast.LENGTH_LONG).show();
+            }
+            finish();
+            return true;
+        }
+
+        String requestedLabel;
+        if (parsed.action == DeviceCommandParser.Action.OPEN_APP) {
+            requestedLabel = parsed.argument;
+        } else if (parsed.action == DeviceCommandParser.Action.OPEN_CHROME) {
+            requestedLabel = "Chrome";
+        } else {
+            return false;
+        }
+
+        DeviceCapabilityGateway gateway = new DeviceCapabilityGateway(this);
+        java.util.List<DeviceCapabilityGateway.InstalledApp> matches =
+                gateway.findAppsByLabel(requestedLabel);
+        if (matches.isEmpty()) {
+            Toast.makeText(this,
+                    "No exact launchable app named " + requestedLabel + " was found.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return true;
+        }
+        if (matches.size() == 1) {
+            launchSelectedApp(gateway, matches.get(0));
+            return true;
+        }
+
+        String[] choices = new String[matches.size()];
+        for (int i = 0; i < matches.size(); i++) {
+            DeviceCapabilityGateway.InstalledApp app = matches.get(i);
+            choices[i] = app.label + " (" + app.packageName + ")";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Choose the exact installed app")
+                .setItems(choices, (dialog, which) -> {
+                    if (which >= 0 && which < matches.size()) {
+                        launchSelectedApp(gateway, matches.get(which));
+                    } else {
+                        finish();
+                    }
+                })
+                .setOnCancelListener(dialog -> finish())
+                .show();
+        return true;
+    }
+
+    private void launchSelectedApp(
+            DeviceCapabilityGateway gateway,
+            DeviceCapabilityGateway.InstalledApp app
+    ) {
+        DeviceCapabilityGateway.LaunchResult result = gateway.launchConfirmedApp(app.packageName);
+        Toast.makeText(this, result.message, Toast.LENGTH_LONG).show();
+        finish();
     }
 
     @Override
@@ -76,14 +144,19 @@ public final class AssistantEntryActivity extends Activity {
             return;
         }
 
-        // Reuse the existing Core chat/device-planning path. No separate voice
-        // execution route is introduced, and existing owner approval remains in force.
-        SentinelService.start(this);
+        // Simple launcher/system commands are executed from this explicitly
+        // foreground assistant Activity. Complex requests are handed to the
+        // bounded foreground service and normal Core chat path; the main Amiki
+        // shell is never opened just to receive a voice command.
+        if (handleDirectLaunch(command)) return;
         TermuxBackendLauncher.start(this);
-        Intent handoff = new Intent(this, MobileShellActivity.class);
-        handoff.putExtra(EXTRA_ASSISTANT_REQUEST, command);
-        handoff.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        startActivity(handoff);
+        try {
+            AssistantCommandService.start(this, command);
+        } catch (RuntimeException denied) {
+            Toast.makeText(this,
+                    "Android refused the background assistant runtime. No device action was executed.",
+                    Toast.LENGTH_LONG).show();
+        }
         finish();
     }
 }
