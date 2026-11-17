@@ -130,6 +130,8 @@ final class UiTaskPlanClient {
             value.put("label", node.label());
             value.put("view_id", node.viewId);
             value.put("class_name", node.className);
+            value.put("index", node.index);
+            value.put("parent_index", node.parentIndex);
             value.put("clickable", node.clickable);
             value.put("editable", node.editable);
             value.put("scrollable", node.scrollable);
@@ -195,14 +197,13 @@ final class UiTaskPlanClient {
                     || targetLabel != null || expectedType != null || expectedText != null) {
                 throw new IllegalArgumentException("The text-entry proposal contains invalid fields.");
             }
-            String lowerId = targetViewId.toLowerCase(Locale.ROOT);
-            if (lowerId.matches(".*(password|passwd|pin|otp|one_time|secret|cvv).*")) {
-                throw new IllegalArgumentException("Sensitive text-entry fields require direct owner interaction.");
-            }
-            if (UiTargetResolver.findUniqueEditableByViewId(
-                    snapshot, targetViewId, snapshot.capturedAtUptimeMillis).status
-                    != UiTargetResolver.Status.FOUND) {
+            UiTargetResolver.Result editableTarget = UiTargetResolver.findUniqueEditableByViewId(
+                    snapshot, targetViewId, snapshot.capturedAtUptimeMillis);
+            if (editableTarget.status != UiTargetResolver.Status.FOUND) {
                 throw new IllegalArgumentException("An exact unique non-password editable field could not be resolved.");
+            }
+            if (hasSensitiveTextEntryContext(snapshot, targetViewId)) {
+                throw new IllegalArgumentException("Sensitive text-entry fields require direct owner interaction.");
             }
         } else if ("scroll_forward".equals(action) || "scroll_backward".equals(action)) {
             requireOnly(targetLabel, targetViewId, text, "scroll");
@@ -231,6 +232,42 @@ final class UiTaskPlanClient {
         }
         return new Plan(Status.ACTION, action, targetLabel, targetViewId, text,
                 expectedType, expectedText, null, null);
+    }
+
+    private static final String[] SENSITIVE_FIELD_TERMS = {
+            "password", "passwd", "passcode", "pin", "otp", "one time",
+            "verification code", "security code", "two factor", "2fa",
+            "authenticator", "authentication", "cvv", "cvc", "card number",
+            "credit card", "debit card", "payment", "checkout", "bank account",
+            "account number", "iban", "routing number", "swift code"
+    };
+
+    private static boolean hasSensitiveTextEntryContext(
+            UiNodeSnapshot snapshot, String targetViewId) {
+        String idContext = targetViewId == null ? "" : targetViewId
+                .toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+        if (containsSensitiveTerm(idContext)) return true;
+        for (UiNodeSnapshot.Node node : snapshot.nodes) {
+            if (node == null || !node.editable || !targetViewId.equals(node.viewId)) continue;
+            String context = node.label();
+            for (UiNodeSnapshot.Node parent : snapshot.nodes) {
+                if (parent != null && parent.index == node.parentIndex) {
+                    context = context + " " + parent.label();
+                    break;
+                }
+            }
+            return containsSensitiveTerm(context.toLowerCase(Locale.ROOT));
+        }
+        return false;
+    }
+
+    private static boolean containsSensitiveTerm(String value) {
+        if (value == null || value.isEmpty()) return false;
+        String normalized = value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+        for (String term : SENSITIVE_FIELD_TERMS) {
+            if ((" " + normalized + " ").contains(" " + term + " ")) return true;
+        }
+        return false;
     }
 
     private static void requireEmptyEvidence(JSONObject json) {
