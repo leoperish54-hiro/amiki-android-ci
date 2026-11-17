@@ -181,7 +181,7 @@ public class LearningReviewActivity extends FragmentActivity {
     }
 
     private void updateTokenStatus() {
-        boolean active = OwnerSessionVault.hasToken(this);
+        boolean active = OwnerSessionVault.hasPrivilegedToken(this);
         statusView.setText(active
                 ? "An encrypted UOSA L1 session is available on this device."
                 : "No active UOSA session. Enroll this device and create a fresh L1 session in Owner Security.");
@@ -192,7 +192,7 @@ public class LearningReviewActivity extends FragmentActivity {
         final String requestedKind = selectedKind;
         final String token;
         try {
-            token = OwnerSessionVault.readToken(this);
+            token = OwnerSessionVault.readPrivilegedToken(this);
         } catch (Exception failure) {
             OwnerSessionVault.clear(this);
             updateTokenStatus();
@@ -356,7 +356,7 @@ public class LearningReviewActivity extends FragmentActivity {
     private void submitDecision(LearningReviewItem item, String action) {
         final String baseToken;
         try {
-            baseToken = OwnerSessionVault.readToken(this);
+            baseToken = OwnerSessionVault.readPrivilegedToken(this);
         } catch (Exception failure) {
             OwnerSessionVault.clear(this);
             updateTokenStatus();
