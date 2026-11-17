@@ -33,7 +33,7 @@ public final class UiNodeSnapshot {
             this.parentIndex = parentIndex;
             this.className = clean(className);
             this.text = password || editable ? "" : clean(text);
-            this.contentDescription = password ? "" : clean(contentDescription);
+            this.contentDescription = password || editable ? "" : clean(contentDescription);
             this.viewId = clean(viewId);
             this.clickable = clickable;
             this.scrollable = scrollable;
