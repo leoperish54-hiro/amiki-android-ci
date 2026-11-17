@@ -10,7 +10,9 @@ import java.util.regex.Pattern;
  */
 public final class AssistantRequestClassifier {
     private static final Pattern ACTION_PREFIX = Pattern.compile(
-            "^(?:please\\s+)?(?:open|launch|start|search|find|play|pause|send|message|text|"
+            "^(?:(?:please)|(?:(?:can|could|would|will)\\s+you(?:\\s+please)?)|"
+                    + "(?:i\\s+want\\s+you\\s+to(?:\\s+please)?))?\\s*"
+                    + "(?:open|launch|start|search|find|play|pause|send|message|text|"
                     + "call|dial|set|create|tap|click|press|type|scroll|swipe|navigate|visit|"
                     + "go\\s+to|turn\\s+on|turn\\s+off|enable|disable|switch\\s+on|"
                     + "switch\\s+off|install|uninstall)\\b.*$",
