@@ -2,6 +2,7 @@ package com.amiki.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -10,6 +11,8 @@ import android.os.BatteryManager;
 import android.provider.AlarmClock;
 import android.provider.ContactsContract;
 import android.provider.Settings;
+
+import java.util.List;
 
 public final class DeviceActionExecutor {
 
@@ -86,6 +89,10 @@ public final class DeviceActionExecutor {
                     openChrome(callback);
                     return;
 
+                case OPEN_APP:
+                    openInstalledApp(command.argument, callback);
+                    return;
+
                 case BATTERY_STATE:
                     BatteryManager batteryManager =
                             (BatteryManager) activity.getSystemService(
@@ -145,6 +152,69 @@ public final class DeviceActionExecutor {
         } catch (RuntimeException error) {
             callback.onError("The device action could not be completed.");
         }
+    }
+
+    private void openInstalledApp(String requestedLabel, Callback callback) {
+        DeviceCapabilityGateway gateway = new DeviceCapabilityGateway(activity);
+        List<DeviceCapabilityGateway.InstalledApp> matches =
+                gateway.findAppsByLabel(requestedLabel);
+        if (matches.isEmpty()) {
+            callback.onError("No launchable app has the exact installed name '" + requestedLabel
+                    + "'. Open Installed Apps to inspect the names Android exposes.");
+            return;
+        }
+        if (matches.size() == 1) {
+            confirmInstalledAppLaunch(gateway, matches.get(0), callback);
+            return;
+        }
+
+        String[] choices = new String[matches.size()];
+        for (int i = 0; i < matches.size(); i++) {
+            DeviceCapabilityGateway.InstalledApp app = matches.get(i);
+            choices[i] = app.label + "\n" + app.packageName;
+        }
+        new AlertDialog.Builder(activity)
+                .setTitle("Choose the exact app")
+                .setItems(choices, (dialog, which) -> {
+                    if (which >= 0 && which < matches.size()) {
+                        confirmInstalledAppLaunch(gateway, matches.get(which), callback);
+                    } else {
+                        callback.onError("No app was selected. Nothing was opened.");
+                    }
+                })
+                .setNegativeButton("Cancel", (dialog, which) ->
+                        callback.onResult("App launch cancelled. Nothing was opened."))
+                .setOnCancelListener(dialog ->
+                        callback.onResult("App launch cancelled. Nothing was opened."))
+                .show();
+    }
+
+    private void confirmInstalledAppLaunch(
+            DeviceCapabilityGateway gateway,
+            DeviceCapabilityGateway.InstalledApp app,
+            Callback callback
+    ) {
+        if (activity.isFinishing()
+                || (android.os.Build.VERSION.SDK_INT >= 17 && activity.isDestroyed())) {
+            callback.onError("Amiki is closing. No app was launched.");
+            return;
+        }
+        new AlertDialog.Builder(activity)
+                .setTitle("Open " + app.label + "?")
+                .setMessage("Installed app: " + app.label
+                        + "\nPackage: " + app.packageName
+                        + "\n\nAmiki will ask Android to launch this app. This does not grant access to its contents.")
+                .setNegativeButton("Cancel", (dialog, which) ->
+                        callback.onResult("App launch cancelled. Nothing was opened."))
+                .setPositiveButton("Open app", (dialog, which) -> {
+                    DeviceCapabilityGateway.LaunchResult result =
+                            gateway.launchConfirmedApp(app.packageName);
+                    if (result.accepted) callback.onResult(result.message);
+                    else callback.onError(result.message);
+                })
+                .setOnCancelListener(dialog ->
+                        callback.onResult("App launch cancelled. Nothing was opened."))
+                .show();
     }
 
     private void openChrome(Callback callback) {
