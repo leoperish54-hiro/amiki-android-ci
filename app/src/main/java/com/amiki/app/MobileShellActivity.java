@@ -250,6 +250,77 @@ public class MobileShellActivity extends Activity {
         persistConversationHistory();
         showDashboard();
         checkHealth();
+        dispatchAssistantRequest(getIntent());
+    }
+
+    private void requestAssistantRole() {
+        if (!AssistantRoleGateway.isAvailable(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Android assistant unavailable")
+                    .setMessage(AssistantRoleGateway.status(this))
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+        if (AssistantRoleGateway.isHeld(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Amiki is your default assistant")
+                    .setMessage("Use the device's configured assistant gesture to invoke Amiki. Speech recognition starts only after that explicit invocation. This does not enable an always-listening 'Amiki' wake word.")
+                    .setPositiveButton("Understood", null)
+                    .show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Set Amiki as your device assistant?")
+                .setMessage("Android will ask you to choose the default assistant. When selected, use your phone's assistant gesture to invoke Amiki without manually opening the app. Speech recognition starts only after that explicit invocation. This does not enable an always-listening 'Amiki' wake word or microphone capture in standby.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Continue", (dialog, which) -> {
+                    try {
+                        startActivityForResult(AssistantRoleGateway.createRequestIntent(this), 7005);
+                    } catch (Exception failure) {
+                        Toast.makeText(this, "Android could not open the assistant-role selection.", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
+    }
+
+    private void dispatchAssistantRequest(Intent source) {
+        if (source == null) return;
+        String command = source.getStringExtra(AssistantEntryActivity.EXTRA_ASSISTANT_REQUEST);
+        if (command == null || command.trim().isEmpty()) return;
+        source.removeExtra(AssistantEntryActivity.EXTRA_ASSISTANT_REQUEST);
+        if (chatRequestInFlight || conversationHistoryLoading) {
+            Toast.makeText(this, "Amiki is already handling another request. Please try again.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final String request;
+        try {
+            request = VoiceAssistantCommandValidator.validate(command);
+        } catch (IllegalArgumentException invalid) {
+            Toast.makeText(this, invalid.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        active = 0;
+        chatDraft = request;
+        showChat();
+        content.post(() -> {
+            if (isFinishing() || content == null || chatRequestInFlight) return;
+            View inputView = content.findViewWithTag("amiki_input");
+            View sendView = content.findViewWithTag("amiki_send");
+            if (!(inputView instanceof EditText) || !(sendView instanceof Button)) {
+                Toast.makeText(this, "The assistant command could not be staged in chat.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            ((EditText) inputView).setText(request);
+            ((Button) sendView).performClick();
+        });
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        dispatchAssistantRequest(intent);
     }
 
     private void buildShell() {
@@ -3686,6 +3757,9 @@ public class MobileShellActivity extends Activity {
 
         addLargeCard(body,"📦  Installed Apps","Discover and open apps",v ->
                 startActivity(new Intent(this, InstalledAppsActivity.class)));
+        addLargeCard(body,"🎙  Android Assistant",AssistantRoleGateway.status(this)
+                + " Use the phone's assistant gesture to issue a spoken command without manually opening Amiki.",v ->
+                requestAssistantRole());
         addLargeCard(body,"♿  Accessibility Operator Setup","Explicitly enable Amiki in Android Accessibility settings",v ->
                 showAccessibilityOperatorSetup());
         addLargeCard(body,"◉  Arm One-Task UI Observation","Observe foreground app UI only while a task is armed",v ->
