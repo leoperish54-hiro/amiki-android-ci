@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="amiki_accessibility_service_description">Amiki uses accessibility only during an owner-armed device task to inspect the foreground app interface. It does not monitor continuously or perform actions in this observation-only stage. Screen content is held temporarily in memory and is not uploaded or saved by this service.</string>
+    <string name="amiki_accessibility_service_description">Amiki uses Accessibility only while you have an active device task. It reads a bounded snapshot of visible app controls and labels to plan the next step with Amiki Core; visible screen labels may be sent to the configured AI provider for that task. Editable and password field values are redacted. Screen snapshots are held temporarily in memory and are not written to the task journal or sent to Cipher. Every UI action requires a separate on-screen review and fresh owner biometric approval. The service does not run an always-on screen monitor; stop a task from the ongoing Amiki notification or disable this service in Android Settings.</string>
 </resources>
