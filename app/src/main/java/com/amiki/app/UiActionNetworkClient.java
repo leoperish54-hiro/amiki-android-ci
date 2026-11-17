@@ -33,6 +33,8 @@ final class UiActionNetworkClient {
                 body.put("action_type", request.actionType.wireValue);
                 body.put("package_name", request.packageName);
                 if (request.payloadSha256 != null) body.put("payload_sha256", request.payloadSha256);
+                body.put("postcondition_sha256", request.postconditionSha256);
+                body.put("postcondition_type", request.postconditionType);
                 body.put("result_code", resultCode);
                 body.put("snapshot_age_ms", request.snapshotAgeMs);
                 body.put("snapshot_fingerprint", request.snapshotFingerprint);
