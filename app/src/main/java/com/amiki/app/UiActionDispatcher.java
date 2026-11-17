@@ -155,6 +155,11 @@ public final class UiActionDispatcher {
                     : !payloadSha256.equals(returnedPayloadHash)) return false;
             if (!postconditionType.equals(receipt.optString("postcondition_type"))
                     || !postconditionSha256.equals(receipt.optString("postcondition_sha256"))) return false;
+            String auditEventId = receipt.optString("cipher_audit_event_id");
+            String auditHash = receipt.optString("cipher_audit_hash");
+            long auditSequence = receipt.optLong("cipher_audit_sequence", 0L);
+            if (!(actionId + ".authorized").equals(auditEventId)
+                    || auditSequence < 1L || !auditHash.matches("[0-9a-f]{64}")) return false;
             long expires = receipt.optLong("expires_at", 0L);
             return expires > System.currentTimeMillis() / 1000L;
         }
@@ -287,13 +292,15 @@ public final class UiActionDispatcher {
     public static String snapshotFingerprint(UiNodeSnapshot snapshot, String saltHex) {
         StringBuilder material = new StringBuilder();
         material.append(saltHex).append('|').append(snapshot.packageName)
-                .append('|').append(snapshot.windowId);
+                .append('|').append(snapshot.windowId)
+                .append('|').append(snapshot.treeComplete);
         for (UiNodeSnapshot.Node node : snapshot.nodes) {
             if (node == null) continue;
             material.append('|').append(node.index).append(':').append(node.parentIndex)
                     .append(':').append(node.className).append(':').append(node.viewId)
                     .append(':').append(node.clickable).append(':').append(node.scrollable)
                     .append(':').append(node.editable).append(':').append(node.password)
+                    .append(':').append(node.visibleToUser)
                     .append(':').append(node.left).append(',').append(node.top)
                     .append(',').append(node.right).append(',').append(node.bottom)
                     .append(':').append(digest(node.label()));
