@@ -22,6 +22,32 @@ public final class UiActionDispatcher {
         ActionType(String wireValue) { this.wireValue = wireValue; }
     }
 
+    /** Explicit semantic UI transition required before a non-text action is reported verified. */
+    public static final class ExpectedUiState {
+        public enum Type {
+            TEXT_VISIBLE("text_visible"), TEXT_ABSENT("text_absent");
+            final String wireValue;
+            Type(String wireValue) { this.wireValue = wireValue; }
+        }
+        public final Type type;
+        public final String text;
+
+        private ExpectedUiState(Type type, String text) {
+            if (type == null || text == null || text.trim().isEmpty()
+                    || text.trim().length() > UiNodeSnapshot.MAX_LABEL_CHARS) {
+                throw new IllegalArgumentException("A precise expected UI label of 1 to 120 characters is required.");
+            }
+            this.type = type;
+            this.text = text.trim().replaceAll("\\s+", " ");
+        }
+        public static ExpectedUiState textVisible(String text) {
+            return new ExpectedUiState(Type.TEXT_VISIBLE, text);
+        }
+        public static ExpectedUiState textAbsent(String text) {
+            return new ExpectedUiState(Type.TEXT_ABSENT, text);
+        }
+    }
+
     public static final class Request {
         public final String actionId;
         public final String taskId;
@@ -36,11 +62,16 @@ public final class UiActionDispatcher {
         public final String targetLabel;
         public final String targetViewId;
         public final String typedText;
+        public final String postconditionType;
+        public final String postconditionSha256;
+        public final String expectedUiText;
         private final String saltHex;
+        private final UiNodeSnapshot originalSnapshot;
 
         private Request(String taskId, ActionType actionType, UiNodeSnapshot snapshot,
                         UiNodeSnapshot.Node target, String targetLabel,
-                        String targetViewId, String typedText, long nowUptimeMillis) {
+                        String targetViewId, String typedText,
+                        ExpectedUiState expectedUiState, long nowUptimeMillis) {
             if (taskId == null || taskId.trim().isEmpty() || snapshot == null
                     || snapshot.windowId < 0 || snapshot.packageName.isEmpty()) {
                 throw new IllegalArgumentException("A live task and identified foreground window are required.");
@@ -65,6 +96,26 @@ public final class UiActionDispatcher {
             this.targetViewId = targetViewId == null ? "" : targetViewId.trim();
             this.typedText = typedText;
             this.payloadSha256 = typedText == null ? null : digest(saltHex + "|payload|" + typedText);
+            this.originalSnapshot = snapshot;
+            if (expectedUiState != null && !snapshot.treeComplete) {
+                throw new IllegalArgumentException("The accessibility tree is incomplete; observe the full screen again.");
+            }
+            if (actionType == ActionType.TYPE_TEXT) {
+                if (expectedUiState != null) {
+                    throw new IllegalArgumentException("Text entry uses its exact field-value readback postcondition.");
+                }
+                this.postconditionType = "field_value_matches";
+                this.postconditionSha256 = this.payloadSha256;
+                this.expectedUiText = null;
+            } else {
+                if (expectedUiState == null) {
+                    throw new IllegalArgumentException("A semantic visible/absent UI postcondition is required.");
+                }
+                this.postconditionType = expectedUiState.type.wireValue;
+                this.expectedUiText = expectedUiState.text;
+                this.postconditionSha256 = digest(
+                        saltHex + "|postcondition|" + expectedUiState.text.toLowerCase(Locale.ROOT));
+            }
         }
 
         public String toCanonicalJson() {
@@ -75,6 +126,8 @@ public final class UiActionDispatcher {
             if (payloadSha256 != null) {
                 json.append(",\"payload_sha256\":").append(quote(payloadSha256));
             }
+            json.append(",\"postcondition_sha256\":").append(quote(postconditionSha256));
+            json.append(",\"postcondition_type\":").append(quote(postconditionType));
             json.append(",\"snapshot_age_ms\":").append(snapshotAgeMs);
             json.append(",\"snapshot_fingerprint\":").append(quote(snapshotFingerprint));
             json.append(",\"target_fingerprint\":").append(quote(targetFingerprint));
@@ -100,6 +153,8 @@ public final class UiActionDispatcher {
                     ? null : receipt.optString("payload_sha256", null);
             if (payloadSha256 == null ? returnedPayloadHash != null
                     : !payloadSha256.equals(returnedPayloadHash)) return false;
+            if (!postconditionType.equals(receipt.optString("postcondition_type"))
+                    || !postconditionSha256.equals(receipt.optString("postcondition_sha256"))) return false;
             long expires = receipt.optLong("expires_at", 0L);
             return expires > System.currentTimeMillis() / 1000L;
         }
@@ -138,6 +193,33 @@ public final class UiActionDispatcher {
                     node, targetLabel, saltHex));
         }
 
+        /** A non-text action is successful only when the requested label transition occurs. */
+        public boolean matchesPostcondition(UiNodeSnapshot after, long nowUptimeMillis) {
+            if (after == null || expectedUiText == null
+                    || !originalSnapshot.treeComplete || !after.treeComplete) return false;
+            long age = nowUptimeMillis - after.capturedAtUptimeMillis;
+            if (age < 0 || age > UiTargetResolver.MAX_SNAPSHOT_AGE_MS) return false;
+            boolean beforeVisible = containsExactVisibleLabel(originalSnapshot, expectedUiText);
+            boolean afterVisible = containsExactVisibleLabel(after, expectedUiText);
+            if ("text_visible".equals(postconditionType)) return !beforeVisible && afterVisible;
+            if ("text_absent".equals(postconditionType)) return beforeVisible && !afterVisible;
+            return false;
+        }
+
+        private static boolean containsExactVisibleLabel(UiNodeSnapshot snapshot, String expected) {
+            if (snapshot == null || expected == null || !snapshot.treeComplete) return false;
+            String normalizedExpected = normalizeLabel(expected);
+            for (UiNodeSnapshot.Node node : snapshot.nodes) {
+                if (node != null && node.visibleToUser && node.right > node.left && node.bottom > node.top
+                        && normalizedExpected.equals(normalizeLabel(node.label()))) return true;
+            }
+            return false;
+        }
+
+        private static String normalizeLabel(String value) {
+            return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        }
+
         public boolean matchesTypedText(String actualText) {
             return payloadSha256 != null && actualText != null
                     && payloadSha256.equals(digest(saltHex + "|payload|" + actualText));
@@ -146,17 +228,19 @@ public final class UiActionDispatcher {
 
     private UiActionDispatcher() { }
 
-    public static Request tap(String taskId, UiNodeSnapshot snapshot, String exactLabel) {
-        return tap(taskId, snapshot, exactLabel, android.os.SystemClock.uptimeMillis());
+    public static Request tap(String taskId, UiNodeSnapshot snapshot, String exactLabel,
+                              ExpectedUiState expectedUiState) {
+        return tap(taskId, snapshot, exactLabel, expectedUiState,
+                android.os.SystemClock.uptimeMillis());
     }
 
     public static Request tap(String taskId, UiNodeSnapshot snapshot, String exactLabel,
-                              long nowUptimeMillis) {
+                              ExpectedUiState expectedUiState, long nowUptimeMillis) {
         UiTargetResolver.Result match = UiTargetResolver.findUniqueClickable(
                 snapshot, exactLabel, nowUptimeMillis);
         requireFound(match, "A unique clickable control");
         return new Request(taskId, ActionType.TAP, snapshot, match.node,
-                exactLabel, null, null, nowUptimeMillis);
+                exactLabel, null, null, expectedUiState, nowUptimeMillis);
     }
 
     public static Request typeText(String taskId, UiNodeSnapshot snapshot,
@@ -173,27 +257,31 @@ public final class UiActionDispatcher {
                 snapshot, viewId, nowUptimeMillis);
         requireFound(match, "A unique non-password editable field with a view ID");
         return new Request(taskId, ActionType.TYPE_TEXT, snapshot, match.node,
-                null, viewId, exactText, nowUptimeMillis);
-    }
-
-    public static Request scroll(String taskId, UiNodeSnapshot snapshot, boolean forward) {
-        return scroll(taskId, snapshot, forward, android.os.SystemClock.uptimeMillis());
+                null, viewId, exactText, null, nowUptimeMillis);
     }
 
     public static Request scroll(String taskId, UiNodeSnapshot snapshot, boolean forward,
-                                 long nowUptimeMillis) {
+                                  ExpectedUiState expectedUiState) {
+        return scroll(taskId, snapshot, forward, expectedUiState,
+                android.os.SystemClock.uptimeMillis());
+    }
+
+    public static Request scroll(String taskId, UiNodeSnapshot snapshot, boolean forward,
+                                 ExpectedUiState expectedUiState, long nowUptimeMillis) {
         UiTargetResolver.Result match = UiTargetResolver.findUniqueScrollable(snapshot, nowUptimeMillis);
         requireFound(match, "A unique scrollable control");
         return new Request(taskId, forward ? ActionType.SCROLL_FORWARD : ActionType.SCROLL_BACKWARD,
-                snapshot, match.node, null, null, null, nowUptimeMillis);
+                snapshot, match.node, null, null, null, expectedUiState, nowUptimeMillis);
     }
 
-    public static Request back(String taskId, UiNodeSnapshot snapshot) {
-        return back(taskId, snapshot, android.os.SystemClock.uptimeMillis());
+    public static Request back(String taskId, UiNodeSnapshot snapshot, ExpectedUiState expectedUiState) {
+        return back(taskId, snapshot, expectedUiState, android.os.SystemClock.uptimeMillis());
     }
 
-    public static Request back(String taskId, UiNodeSnapshot snapshot, long nowUptimeMillis) {
-        return new Request(taskId, ActionType.BACK, snapshot, null, null, null, null, nowUptimeMillis);
+    public static Request back(String taskId, UiNodeSnapshot snapshot, ExpectedUiState expectedUiState,
+                               long nowUptimeMillis) {
+        return new Request(taskId, ActionType.BACK, snapshot, null, null, null, null,
+                expectedUiState, nowUptimeMillis);
     }
 
     public static String snapshotFingerprint(UiNodeSnapshot snapshot, String saltHex) {
@@ -220,7 +308,7 @@ public final class UiActionDispatcher {
                 + "|" + node.className + "|" + node.viewId + "|" + labelDigest
                 + "|" + node.left + "," + node.top + "," + node.right + "," + node.bottom
                 + "|" + node.clickable + "|" + node.scrollable + "|" + node.editable
-                + "|" + node.password;
+                + "|" + node.password + "|" + node.visibleToUser;
         return digest(material);
     }
 
