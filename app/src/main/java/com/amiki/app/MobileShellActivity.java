@@ -5457,6 +5457,15 @@ public class MobileShellActivity extends Activity {
     }
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if (requestCode == 7005) {
+            Toast.makeText(this,
+                    AssistantRoleGateway.isHeld(this)
+                            ? "Amiki is now selected as the Android assistant. Use the system assistant gesture to invoke it."
+                            : "Amiki was not selected as the Android assistant.",
+                    Toast.LENGTH_LONG).show();
+            showSettings();
+            return;
+        }
         if(requestCode==VOICE_INPUT) voiceInputInFlight = false;
         if (requestCode == PICK_WHATSAPP_CONTACT) { handleWhatsAppContactResult(resultCode, data); return; }
         if(resultCode!=RESULT_OK||data==null){
