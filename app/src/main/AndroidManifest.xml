@@ -56,7 +56,17 @@
         <activity
             android:name=".MobileShellActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".AssistantEntryActivity"
+            android:exported="true"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".AccessibilityOperatorService"
             android:label="Amiki UI Operator"
