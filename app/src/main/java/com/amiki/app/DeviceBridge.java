@@ -107,6 +107,14 @@ public final class DeviceBridge {
             message.append("\nURL: ").append(args.optString("url", "(missing)"));
         } else if ("open_app".equals(action)) {
             message.append("\nApp package: ").append(args.optString("package", "(missing)"));
+        } else if ("spotify_search".equals(action)) {
+            message.append("\nTrack: ").append(args.optString("track", "(missing)"));
+            message.append("\nArtist: ").append(args.optString("artist", "(missing)"));
+            message.append("\nThis opens Spotify search; it does not start playback.");
+        } else if ("whatsapp_compose".equals(action)) {
+            message.append("\nRecipient phone: ").append(args.optString("phone_number", "(missing)"));
+            message.append("\nExact message: ").append(args.optString("message", "(missing)"));
+            message.append("\nThis opens a compose screen; you must review and send in WhatsApp.");
         } else if ("speak".equals(action)) {
             message.append("\nText to speak: ").append(args.optString("text", "(missing)"));
         } else if ("share_text".equals(action)) {
@@ -151,6 +159,12 @@ public final class DeviceBridge {
                 DeviceCapabilityGateway.LaunchResult launch =
                         new DeviceCapabilityGateway(context).launchConfirmedApp(packageName);
                 callback.onResult(launch.message);
+            } else if ("spotify_search".equals(action)) {
+                new CrossAppIntentGateway(context).openSpotifySearch(
+                        args.optString("track", ""), args.optString("artist", ""), callback::onResult);
+            } else if ("whatsapp_compose".equals(action)) {
+                new CrossAppIntentGateway(context).openWhatsAppCompose(
+                        args.optString("phone_number", ""), args.optString("message", ""), callback::onResult);
             } else if ("speak".equals(action)) {
                 String text = args.getString("text");
                 if (context instanceof MobileShellActivity) {
