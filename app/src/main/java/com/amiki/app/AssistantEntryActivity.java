@@ -24,7 +24,11 @@ public final class AssistantEntryActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        if (!Intent.ACTION_ASSIST.equals(getIntent().getAction())) {
+        if (!Intent.ACTION_ASSIST.equals(getIntent().getAction())
+                || !AssistantRoleGateway.isHeld(this)) {
+            // The exported assist handler is inert unless the OS currently
+            // grants Amiki the assistant role. An ordinary app cannot spoof
+            // the assistant gesture by sending ACTION_ASSIST itself.
             finish();
             return;
         }
