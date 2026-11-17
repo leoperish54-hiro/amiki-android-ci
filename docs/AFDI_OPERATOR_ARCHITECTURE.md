@@ -127,12 +127,29 @@ If Android 10 or the Infinix firmware does not expose a capability to an ordinar
 
 ## Background operation and voice
 
-Deferred until foreground task execution is reliable:
-- foreground service only for a justified, visible, bounded operation;
-- explicit start/stop controls, notification, battery budget, and recovery policy;
-- no always-on microphone or wake-word listener by default;
-- ambient voice is opt-in and visibly indicates listening;
-- task execution must remain stoppable and auditable when the UI is not foregrounded.
+Background invocation is a **release requirement**, not an optional post-release feature. The owner must be able to invoke Amiki from outside the main Amiki screen, and an authorized task must remain bounded, visible, stoppable, and auditable when the main activity is closed.
+
+### Implemented assistant-entry foundation (2026-11-17)
+
+- The Android manifest exposes an explicit `ACTION_ASSIST` entry point and declares `MobileShellActivity` as single-top for assistant handoff.
+- The Device screen offers the API-29+ `ROLE_ASSISTANT` request flow through Android's public `RoleManager`.
+- After the owner invokes Amiki through the device's configured assistant gesture, Android speech recognition captures one command and passes it into the existing Core chat/device-planning route.
+- The handoff does not create a parallel action executor. Existing Core planning and local approval remain in the path.
+- The speech command is bounded and rejected when empty, oversized, or containing unsupported control characters.
+- The assistant role request explains that this slice does **not** enable ambient listening or an always-listening “Amiki” wake word.
+
+This is a system-assistant **gesture invocation** foundation. It is not evidence that an always-on hotword works on the Infinix HOT 9.
+
+### Remaining background-voice release work
+
+- Implement and validate a genuine opt-in local wake-word path (for example, an on-device keyword detector). Do not send ambient standby audio to Core or a cloud model.
+- Determine whether the target Infinix firmware exposes usable third-party hotword support through the selected VoiceInteractionService / assistant role. A system assistant gesture and an “Amiki” spoken hotword are separate invocation mechanisms.
+- Test false accepts/rejects, screen-off behavior, battery impact, microphone privacy indicators, user revocation, force-stop, reboot, and OEM battery management on Android 10/API 29.
+- Use a user-visible foreground service only for a justified task runtime; provide a persistent notification and immediate STOP. Do not launch microphone capture silently.
+- On newer Android versions, enforce the relevant foreground-service and microphone permission/type restrictions for the app's target SDK.
+- Background tasks must use the same typed native dispatcher, UOSA authorization, Cipher audit, task journal, and outcome verifier as foreground tasks.
+
+No always-on microphone is enabled by this assistant-entry slice. Ambient voice remains opt-in and must visibly indicate listening.
 
 ## Build sequence and release gates
 
@@ -160,3 +177,17 @@ A release candidate intended for the owner must include:
 - A compose screen is not a sent message.
 - A playback deep link is not proof that audio is playing.
 - Never ask the owner to install an APK that does not meet the agreed release gates.
+
+
+## Implementation checkpoint — 2026-11-17
+
+The first native observation slice is now present on the AFDI development branch:
+
+- AccessibilityOperatorService is registered with the Android accessibility framework and is inert until explicitly armed from the Amiki Device screen.
+- Owner-facing setup disclosure opens Android Accessibility settings; the owner can revoke the service there.
+- Each observation session receives a fresh DeviceTaskController and begins in OBSERVING. STOP clears the in-memory snapshot and cancels the task.
+- The service captures a bounded foreground accessibility tree (maximum 80 nodes / depth 12), stores the latest snapshot only in process memory, and performs no tap/type/scroll action.
+- Password and editable-field text/descriptions are redacted. Other visible UI text can still include sensitive information; therefore snapshots are task-scoped, ephemeral, never uploaded or persisted by this slice, and the owner must stop observation before entering authentication or payment flows.
+- UiTargetResolver accepts only a unique exact label match on a clickable, non-editable, non-password node. It is not yet connected to an action executor.
+
+This checkpoint is an observation prototype, not a finished universal operator. Native action dispatch, fresh-node revalidation, UOSA/Cipher integration, outcome verification, instrumentation coverage, and physical-device acceptance remain required.
