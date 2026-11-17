@@ -1,0 +1,90 @@
+name: Private Core and Cipher contract tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-core-cipher-contract-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  private-contract-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out public CI harness
+        uses: actions/checkout@v4
+
+      - name: Require narrowly scoped private-repository credential
+        env:
+          PRIVATE_REPO_READ_TOKEN: ${{ secrets.AMIKI_PRIVATE_REPO_READ_TOKEN }}
+        run: |
+          if [ -z "$PRIVATE_REPO_READ_TOKEN" ]; then
+            echo "::error::Missing AMIKI_PRIVATE_REPO_READ_TOKEN. Add a fine-grained token with Contents: Read-only access to Amiki- and Cipher."
+            exit 1
+          fi
+
+      - name: Check out Amiki Core at reviewed commit
+        uses: actions/checkout@v4
+        with:
+          repository: leoperish54-hiro/Amiki-
+          ref: 24d78fef6772a9618f64e1f7dca72604a10e20d6
+          token: ${{ secrets.AMIKI_PRIVATE_REPO_READ_TOKEN }}
+          path: private/Amiki-Core
+          persist-credentials: false
+
+      - name: Check out Cipher at reviewed commit
+        uses: actions/checkout@v4
+        with:
+          repository: leoperish54-hiro/Cipher
+          ref: a9ae02b4ef29636c8b1f4042a59a5089de5a5f87
+          token: ${{ secrets.AMIKI_PRIVATE_REPO_READ_TOKEN }}
+          path: private/Cipher
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            private/Amiki-Core/interfaces/api/requirements.txt
+            private/Cipher/pyproject.toml
+
+      - name: Record tested source revisions
+        run: |
+          echo "Amiki Core: $(git -C private/Amiki-Core rev-parse HEAD)"
+          echo "Cipher: $(git -C private/Cipher rev-parse HEAD)"
+
+      - name: Install Core test dependencies
+        working-directory: private/Amiki-Core
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r interfaces/api/requirements.txt
+
+      - name: Run Core AFDI and UOSA execution-contract tests
+        working-directory: private/Amiki-Core
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest -q \
+            interfaces/api/tests/test_device_ui_actions.py \
+            interfaces/api/tests/test_uosa_security.py::test_transaction_binding_uses_canonical_json_and_newline_separators
+
+      - name: Install Cipher package and test dependencies
+        working-directory: private/Cipher
+        run: |
+          python -m pip install .
+          python -m pip install pytest
+
+      - name: Run Cipher append-only audit and service contract tests
+        working-directory: private/Cipher
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pytest -q \
+            tests/unit/test_audit.py \
+            tests/unit/test_service.py
