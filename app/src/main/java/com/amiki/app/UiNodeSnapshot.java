@@ -52,11 +52,18 @@ public final class UiNodeSnapshot {
     }
 
     public final String packageName;
+    public final int windowId;
     public final long capturedAtUptimeMillis;
     public final List<Node> nodes;
 
     public UiNodeSnapshot(String packageName, long capturedAtUptimeMillis, List<Node> nodes) {
+        this(packageName, -1, capturedAtUptimeMillis, nodes);
+    }
+
+    public UiNodeSnapshot(String packageName, int windowId,
+                          long capturedAtUptimeMillis, List<Node> nodes) {
         this.packageName = clean(packageName);
+        this.windowId = windowId;
         this.capturedAtUptimeMillis = capturedAtUptimeMillis;
         List<Node> bounded = new ArrayList<>();
         if (nodes != null) {
