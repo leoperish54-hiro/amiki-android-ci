@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /** Resolves only unique exact semantic matches from a fresh UI snapshot. */
 public final class UiTargetResolver {
-    public enum Status { FOUND, NOT_FOUND, AMBIGUOUS, INVALID_REQUEST, STALE_SNAPSHOT }
+    public enum Status { FOUND, NOT_FOUND, AMBIGUOUS, INVALID_REQUEST, STALE_SNAPSHOT, INCOMPLETE_SNAPSHOT }
 
     public static final long MAX_SNAPSHOT_AGE_MS = 1500L;
 
@@ -33,10 +33,13 @@ public final class UiTargetResolver {
         if (age < 0 || age > MAX_SNAPSHOT_AGE_MS) {
             return new Result(Status.STALE_SNAPSHOT, null, 0);
         }
+        if (!snapshot.treeComplete) {
+            return new Result(Status.INCOMPLETE_SNAPSHOT, null, 0);
+        }
         String target = normalize(requestedLabel);
         List<UiNodeSnapshot.Node> matches = new ArrayList<>();
         for (UiNodeSnapshot.Node node : snapshot.nodes) {
-            if (node == null || !node.clickable || node.password || node.editable) continue;
+            if (!isVisibleTarget(node) || !node.clickable || node.password || node.editable) continue;
             if (target.equals(normalize(node.label()))) matches.add(node);
         }
         if (matches.isEmpty()) return new Result(Status.NOT_FOUND, null, 0);
@@ -50,9 +53,12 @@ public final class UiTargetResolver {
         if (age < 0 || age > MAX_SNAPSHOT_AGE_MS) {
             return new Result(Status.STALE_SNAPSHOT, null, 0);
         }
+        if (!snapshot.treeComplete) {
+            return new Result(Status.INCOMPLETE_SNAPSHOT, null, 0);
+        }
         List<UiNodeSnapshot.Node> matches = new ArrayList<>();
         for (UiNodeSnapshot.Node node : snapshot.nodes) {
-            if (node != null && node.scrollable && !node.password && !node.editable) matches.add(node);
+            if (isVisibleTarget(node) && node.scrollable && !node.password && !node.editable) matches.add(node);
         }
         if (matches.isEmpty()) return new Result(Status.NOT_FOUND, null, 0);
         if (matches.size() != 1) return new Result(Status.AMBIGUOUS, null, matches.size());
@@ -68,16 +74,24 @@ public final class UiTargetResolver {
         if (age < 0 || age > MAX_SNAPSHOT_AGE_MS) {
             return new Result(Status.STALE_SNAPSHOT, null, 0);
         }
+        if (!snapshot.treeComplete) {
+            return new Result(Status.INCOMPLETE_SNAPSHOT, null, 0);
+        }
         String target = requestedViewId.trim();
         List<UiNodeSnapshot.Node> matches = new ArrayList<>();
         for (UiNodeSnapshot.Node node : snapshot.nodes) {
-            if (node != null && node.editable && !node.password && target.equals(node.viewId)) {
+            if (isVisibleTarget(node) && node.editable && !node.password && target.equals(node.viewId)) {
                 matches.add(node);
             }
         }
         if (matches.isEmpty()) return new Result(Status.NOT_FOUND, null, 0);
         if (matches.size() != 1) return new Result(Status.AMBIGUOUS, null, matches.size());
         return new Result(Status.FOUND, matches.get(0), 1);
+    }
+
+    private static boolean isVisibleTarget(UiNodeSnapshot.Node node) {
+        return node != null && node.visibleToUser
+                && node.right > node.left && node.bottom > node.top;
     }
 
     private static String normalize(String value) {
