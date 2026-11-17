@@ -40,6 +40,19 @@ public class DeviceCommandParserTest {
     }
 
     @Test
+    public void stripsTrailingPunctuationFromAppLabel() {
+        DeviceCommandParser.Command command =
+                DeviceCommandParser.parse("open Spotify.");
+        assertEquals("Spotify", command.argument);
+    }
+
+    @Test
+    public void rejectsOversizedAppLabels() {
+        String longLabel = new String(new char[97]).replace('\0', 'x');
+        assertNull(DeviceCommandParser.parse("open " + longLabel));
+    }
+
+    @Test
     public void leavesCompoundOpenAndPlayRequestForTheCorePlanner() {
         assertNull(DeviceCommandParser.parse("open Spotify and play Lucid Dreams"));
     }
