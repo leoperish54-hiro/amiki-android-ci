@@ -7,6 +7,7 @@ import org.junit.Test;
 import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
@@ -168,6 +169,38 @@ public class UiTaskPlanClientTest {
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
         }
+    }
+
+    @Test
+    public void requestSerializationDoesNotSendHiddenNodeLabelsOrIdentifiers() throws Exception {
+        UiNodeSnapshot.Node visible = new UiNodeSnapshot.Node(
+                0, -1, "android.widget.Button", "Search", "", "com.youtube:id/search",
+                true, false, false, false, 0, 0, 120, 60, true);
+        UiNodeSnapshot.Node hidden = new UiNodeSnapshot.Node(
+                1, 0, "android.widget.EditText", "Hidden verification code", "",
+                "com.example:id/hidden_otp", false, false, true, false,
+                0, 80, 200, 120, false);
+        UiNodeSnapshot snapshot = new UiNodeSnapshot("com.example.app", 5, 1000L,
+                Arrays.asList(visible, hidden), true);
+
+        JSONObject request = UiTaskPlanClient.buildRequest(
+                "task-001", "Search", 0, snapshot, null, 1001L);
+        JSONArray nodes = request.getJSONArray("nodes");
+        JSONObject visiblePayload = nodes.getJSONObject(0);
+        JSONObject hiddenPayload = nodes.getJSONObject(1);
+
+        assertEquals("Search", visiblePayload.getString("label"));
+        assertEquals("com.youtube:id/search", visiblePayload.getString("view_id"));
+        assertEquals("Hidden verification code", hidden.label());
+        assertEquals("", hiddenPayload.getString("label"));
+        assertEquals("", hiddenPayload.getString("view_id"));
+        assertEquals("", hiddenPayload.getString("class_name"));
+        assertFalse(hiddenPayload.getBoolean("visible"));
+        assertFalse(hiddenPayload.getBoolean("editable"));
+        assertFalse(hiddenPayload.getBoolean("clickable"));
+        assertFalse(hiddenPayload.getBoolean("scrollable"));
+        assertEquals(1, hiddenPayload.getInt("index"));
+        assertEquals(0, hiddenPayload.getInt("parent_index"));
     }
 
     @Test
