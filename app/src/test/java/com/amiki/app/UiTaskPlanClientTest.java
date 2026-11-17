@@ -191,7 +191,7 @@ public class UiTaskPlanClientTest {
 
         assertEquals("Search", visiblePayload.getString("label"));
         assertEquals("com.youtube:id/search", visiblePayload.getString("view_id"));
-        assertEquals("Hidden verification code", hidden.label());
+        assertEquals("", hidden.label());
         assertEquals("", hiddenPayload.getString("label"));
         assertEquals("", hiddenPayload.getString("view_id"));
         assertEquals("", hiddenPayload.getString("class_name"));
