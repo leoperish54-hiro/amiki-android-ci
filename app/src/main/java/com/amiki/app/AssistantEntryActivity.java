@@ -382,7 +382,7 @@ public final class AssistantEntryActivity extends Activity {
         }
 
         updateListeningMessage("Heard: " + boundedVoiceText(update.heldText)
-                + "\\nContinue speaking…");
+                + "\nContinue speaking…");
         scheduleTranscriptFlush(update.waitMillis);
         mainHandler.postDelayed(this::restartRecognitionSegment, 220L);
     }
