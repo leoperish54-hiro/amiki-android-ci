@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.provider.Settings;
 import android.os.Bundle;
+import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.widget.Toast;
@@ -20,8 +21,10 @@ import java.util.regex.Pattern;
  */
 public final class AssistantEntryActivity extends Activity {
     static final String EXTRA_ASSISTANT_REQUEST = "com.amiki.app.extra.ASSISTANT_REQUEST";
-    private static final int REQUEST_SPEECH = 7301;
     private boolean recognitionLaunched;
+    private SpeechRecognizer activeRecognizer;
+    private AlertDialog listeningDialog;
+    private AmikiVoiceEngine.Selection voiceSelection;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -35,8 +38,9 @@ public final class AssistantEntryActivity extends Activity {
             finish();
             return;
         }
-        if (state == null) startRecognition();
-        else recognitionLaunched = state.getBoolean("recognition_launched", false);
+        // Recreate the short-lived recognition session after an Activity recreation.
+        recognitionLaunched = false;
+        startRecognition();
     }
 
     private boolean handleStopCommand(String command) {
@@ -273,39 +277,143 @@ public final class AssistantEntryActivity extends Activity {
     }
 
     private void startRecognition() {
-        if (recognitionLaunched) return;
+        if (recognitionLaunched || isFinishing()) return;
         recognitionLaunched = true;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "Android speech recognition is unavailable.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "No Android speech-recognition provider is available.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
-        Intent request = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        request.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        request.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your command for Amiki");
-        request.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-        request.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+
+        voiceSelection = AmikiVoiceEngine.resolve(this);
+        if (!voiceSelection.isAvailable()) {
+            Toast.makeText(this,
+                    "On-device recognition was requested but is unavailable. Change the voice provider in Amiki settings.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+
         try {
-            startActivityForResult(request, REQUEST_SPEECH);
-        } catch (Exception failure) {
-            Toast.makeText(this, "The Android speech recognizer could not be started.", Toast.LENGTH_LONG).show();
+            activeRecognizer = AmikiVoiceEngine.createRecognizer(this, voiceSelection);
+            if (activeRecognizer == null) {
+                throw new IllegalStateException("The selected speech provider could not be created.");
+            }
+            activeRecognizer.setRecognitionListener(new RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle params) {
+                    updateListeningMessage("Listening for your command…");
+                }
+                @Override public void onBeginningOfSpeech() {
+                    updateListeningMessage("Hearing you…");
+                }
+                @Override public void onRmsChanged(float rmsdB) { }
+                @Override public void onBufferReceived(byte[] buffer) { }
+                @Override public void onEndOfSpeech() {
+                    updateListeningMessage("Processing your command…");
+                }
+                @Override public void onError(int error) {
+                    handleRecognitionError(error);
+                }
+                @Override public void onResults(Bundle results) {
+                    dismissListeningDialog();
+                    destroyRecognizer(false);
+                    ArrayList<String> matches = results == null ? null
+                            : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    handleRecognizedCommand(matches == null || matches.isEmpty()
+                            ? null : matches.get(0));
+                }
+                @Override public void onPartialResults(Bundle partialResults) { }
+                @Override public void onEvent(int eventType, Bundle params) { }
+            });
+
+            showListeningDialog(voiceSelection.description());
+            activeRecognizer.startListening(AmikiVoiceEngine.createRecognitionRequest());
+        } catch (RuntimeException failure) {
+            dismissListeningDialog();
+            destroyRecognizer(true);
+            Toast.makeText(this,
+                    "Amiki could not start the selected speech provider. No command was executed.",
+                    Toast.LENGTH_LONG).show();
             finish();
         }
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_SPEECH) return;
-        if (resultCode != RESULT_OK || data == null) {
-            finish();
-            return;
+    private void showListeningDialog(String providerDescription) {
+        listeningDialog = new AlertDialog.Builder(this)
+                .setTitle("Amiki")
+                .setMessage("Listening for your command…\n" + providerDescription
+                        + "\nOffline recognition is requested where the provider supports it.")
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    destroyRecognizer(true);
+                    finish();
+                })
+                .setOnCancelListener(dialog -> {
+                    destroyRecognizer(true);
+                    finish();
+                })
+                .create();
+        listeningDialog.show();
+    }
+
+    private void updateListeningMessage(String message) {
+        if (listeningDialog != null && listeningDialog.isShowing()) {
+            listeningDialog.setMessage(message + "\n" + voiceSelection.description());
         }
-        ArrayList<String> matches = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+    }
+
+    private void dismissListeningDialog() {
+        if (listeningDialog != null && listeningDialog.isShowing()) {
+            listeningDialog.dismiss();
+        }
+        listeningDialog = null;
+    }
+
+    private void destroyRecognizer(boolean cancel) {
+        SpeechRecognizer recognizer = activeRecognizer;
+        activeRecognizer = null;
+        if (recognizer == null) return;
+        if (cancel) {
+            try { recognizer.cancel(); } catch (RuntimeException ignored) { }
+        }
+        try { recognizer.destroy(); } catch (RuntimeException ignored) { }
+    }
+
+    private void handleRecognitionError(int error) {
+        dismissListeningDialog();
+        destroyRecognizer(false);
+        String message;
+        switch (error) {
+            case SpeechRecognizer.ERROR_AUDIO:
+                message = "The microphone could not be read.";
+                break;
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
+                message = "Microphone permission is required for voice commands.";
+                break;
+            case SpeechRecognizer.ERROR_NETWORK:
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
+                message = "The selected recognition provider could not complete the request.";
+                break;
+            case SpeechRecognizer.ERROR_NO_MATCH:
+                message = "I didn't catch that. Please try again.";
+                break;
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
+                message = "The speech provider is busy. Try again in a moment.";
+                break;
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
+                message = "I didn't hear a command.";
+                break;
+            default:
+                message = "Speech recognition failed (code " + error + ").";
+                break;
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        finish();
+    }
+
+    private void handleRecognizedCommand(String recognizedText) {
         String command;
         try {
-            command = VoiceAssistantCommandValidator.validate(
-                    matches == null || matches.isEmpty() ? null : matches.get(0));
+            command = VoiceAssistantCommandValidator.validate(recognizedText);
         } catch (IllegalArgumentException invalid) {
             Toast.makeText(this, invalid.getMessage(), Toast.LENGTH_LONG).show();
             finish();
@@ -314,8 +422,7 @@ public final class AssistantEntryActivity extends Activity {
 
         // Simple launcher/system commands are executed from this explicitly
         // foreground assistant Activity. Device-control requests use the same
-        // bounded, observation-driven operator in the foreground service; the
-        // main Amiki shell is never opened just to receive a voice command.
+        // bounded, observation-driven operator and owner-approval pipeline.
         if (handleStopCommand(command)) return;
         if (handleCompoundAppTask(command)) return;
         if (handleDirectLaunch(command)) return;
@@ -332,5 +439,12 @@ public final class AssistantEntryActivity extends Activity {
                     Toast.LENGTH_LONG).show();
         }
         finish();
+    }
+
+    @Override
+    protected void onDestroy() {
+        dismissListeningDialog();
+        destroyRecognizer(true);
+        super.onDestroy();
     }
 }
