@@ -113,6 +113,7 @@ Source reference: adewaskar/jarvis at commit 9ae5ec846b6b20a17b2d264e699d6234c42
 ### Current implementation details
 
 - AmikiVoiceInteractionService is the Android system-managed assistant host; AmikiVoiceInteractionSessionService and AmikiVoiceInteractionSession display the Amiki assistant session.
+- On API 29–30, VoiceInteractionService metadata points to AmikiRecognitionService, an Amiki-owned RecognitionService adapter that discovers a non-Amiki recognition provider and forwards callbacks; it avoids hardcoding Google and avoids recursively selecting itself.
 - WakeWordSettingsActivity provisions the local phrase model and stores the Picovoice AccessKey through AmikiSecretStore.
 - AmikiWakeWordService is opt-in, has a persistent notification and stop action, and releases its microphone engine before the assistant command recognizer opens.
 - AssistantEntryActivity joins speech-recognition result fragments when a pause appears before a conjunction/preposition or other unfinished phrase.
@@ -122,7 +123,7 @@ Source reference: adewaskar/jarvis at commit 9ae5ec846b6b20a17b2d264e699d6234c42
 
 ### Explicit limitations
 
-- The general command STT path is not yet fully independent of Google/system recognition on API 29. The Android 10 HOT 9 uses the installed system SpeechRecognizer provider unless a future bundled ASR adapter is integrated.
+- The general command STT path is not yet fully offline on API 29. AmikiRecognitionService proxies the installed non-Amiki SpeechRecognizer provider (which may be Google); a bundled offline ASR adapter is still required for complete provider independence.
 - Porcupine requires an owner-supplied AccessKey and online phrase-model provisioning. The access key is not embedded in source or APK build secrets.
 - No ambient listening is started by boot receiver. The owner must explicitly enable it; the system-managed VoiceInteractionService can attempt to restore a previously enabled listener.
 - Barge-in detection is implemented but not physically calibrated on the HOT 9. Microphone arbitration and speaker echo need device tests.
