@@ -92,6 +92,18 @@
                 android:resource="@xml/amiki_voice_interaction" />
         </service>
         <service
+            android:name=".AmikiRecognitionService"
+            android:label="Amiki Speech Recognition"
+            android:permission="android.permission.BIND_SPEECH_RECOGNITION"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/amiki_recognition_service" />
+        </service>
+        <service
             android:name=".AmikiVoiceInteractionSessionService"
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true" />
