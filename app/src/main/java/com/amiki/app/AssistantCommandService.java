@@ -117,9 +117,9 @@ public final class AssistantCommandService extends Service {
 
     private void finishRuntimeForTurn(long turnId) {
         if (!isCurrentTurn(turnId)) return;
-        requestRunning = false;
-        activeTurnGeneration = 0L;
         voiceSession.finishResponse(turnId);
+        activeTurnGeneration = 0L;
+        requestRunning = false;
         if (AccessibilityOperatorService.isObservationArmed()) {
             AccessibilityOperatorService.stopObservation();
         }
