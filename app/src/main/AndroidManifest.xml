@@ -22,6 +22,8 @@
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
@@ -31,6 +33,9 @@
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
+        <activity
+            android:name=".WakeWordSettingsActivity"
+            android:exported="false" />
         <activity
             android:name=".OwnerSecurityActivity"
             android:exported="false" />
@@ -74,6 +79,30 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".AmikiVoiceInteractionService"
+            android:label="Amiki"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/amiki_voice_interaction" />
+        </service>
+        <service
+            android:name=".AmikiVoiceInteractionSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+        <service
+            android:name=".AmikiWakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|microphone">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Owner-enabled local Hey Amiki keyword detection; standby audio is processed on-device and is not streamed to a remote speech recognizer." />
+        </service>
         <service
             android:name=".AccessibilityOperatorService"
             android:label="Amiki UI Operator"
