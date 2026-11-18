@@ -51,6 +51,7 @@ android {
 dependencies {
     implementation("org.commonmark:commonmark:0.24.0")
     implementation("androidx.biometric:biometric:1.1.0")
+    implementation("ai.picovoice:porcupine-android:4.0.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }
