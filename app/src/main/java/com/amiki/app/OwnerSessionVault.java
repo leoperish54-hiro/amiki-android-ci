@@ -16,7 +16,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Separate encrypted stores for renewable general access and 15-minute privileged sessions. */
+/** Encrypted non-expiring general access and separately expiring privileged sessions. */
 final class OwnerSessionVault {
     private static final String GENERAL_PREFS = "amiki_uosa_general_session";
     private static final String PRIVILEGED_PREFS = "amiki_uosa_privileged_session";
@@ -45,13 +45,12 @@ final class OwnerSessionVault {
         catch (Exception ignored) { return false; }
     }
 
-    static void saveGeneralToken(
-            Context context, String token, long expiresAtEpochSeconds, String grantId
-    ) throws Exception {
+    static void saveGeneralToken(Context context, String token, String grantId)
+            throws Exception {
         if (grantId == null || grantId.trim().length() < 32 || grantId.length() > 128) {
             throw new IllegalArgumentException("Invalid UOSA persistent grant identifier.");
         }
-        saveProfile(context, true, token, expiresAtEpochSeconds);
+        saveProfile(context, true, token, 0L);
         generalPreferences(context).edit().putString(GRANT_ID, grantId).apply();
     }
 
@@ -68,9 +67,9 @@ final class OwnerSessionVault {
         return readProfile(context, false);
     }
 
-    /** Compatibility: general capability requests use the persistent general profile. */
-    static void saveToken(Context context, String token, long expiresAtEpochSeconds) throws Exception {
-        saveProfile(context, true, token, expiresAtEpochSeconds);
+    /** Compatibility: general capability requests use the non-expiring general profile. */
+    static void saveToken(Context context, String token, long ignoredExpiry) throws Exception {
+        saveProfile(context, true, token, 0L);
     }
 
     static String readToken(Context context) throws Exception {
@@ -114,8 +113,8 @@ final class OwnerSessionVault {
             throw new IllegalArgumentException("Invalid UOSA session token.");
         }
         long now = System.currentTimeMillis() / 1000L;
-        if (expiresAtEpochSeconds <= now || expiresAtEpochSeconds > now + 1800L) {
-            throw new IllegalArgumentException("Invalid UOSA session expiry.");
+        if (!general && (expiresAtEpochSeconds <= now || expiresAtEpochSeconds > now + 1800L)) {
+            throw new IllegalArgumentException("Invalid UOSA privileged-session expiry.");
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             throw new IllegalStateException("Android Keystore AES-GCM is unavailable.");
@@ -129,11 +128,12 @@ final class OwnerSessionVault {
             iv = cipher.getIV();
             encrypted = cipher.doFinal(plaintext);
             SharedPreferences prefs = general ? generalPreferences(context) : privilegedPreferences(context);
-            prefs.edit()
+            SharedPreferences.Editor editor = prefs.edit()
                     .putString(IV, Base64.encodeToString(iv, Base64.NO_WRAP))
-                    .putString(CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                    .putLong(EXPIRES_AT, expiresAtEpochSeconds)
-                    .apply();
+                    .putString(CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP));
+            if (general) editor.remove(EXPIRES_AT);
+            else editor.putLong(EXPIRES_AT, expiresAtEpochSeconds);
+            editor.apply();
         } finally {
             Arrays.fill(plaintext, (byte) 0);
             if (encrypted != null) Arrays.fill(encrypted, (byte) 0);
@@ -146,9 +146,10 @@ final class OwnerSessionVault {
         String encodedIv = prefs.getString(IV, null);
         String encodedCiphertext = prefs.getString(CIPHERTEXT, null);
         long expiresAt = prefs.getLong(EXPIRES_AT, 0L);
-        if (encodedIv == null || encodedCiphertext == null || expiresAt <= 0L) return null;
-        if (expiresAt <= System.currentTimeMillis() / 1000L) {
-            clearAccessToken(context, general);
+        if (encodedIv == null || encodedCiphertext == null) return null;
+        if (!general && expiresAt <= 0L) return null;
+        if (!general && expiresAt <= System.currentTimeMillis() / 1000L) {
+            clearAccessToken(context, false);
             return null;
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
