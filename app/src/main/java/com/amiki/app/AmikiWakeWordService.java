@@ -110,8 +110,14 @@ public final class AmikiWakeWordService extends Service {
             return;
         }
         Intent intent = new Intent(context, AmikiWakeWordService.class).setAction(ACTION_RESUME);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent);
-        else context.startService(intent);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent);
+            else context.startService(intent);
+        } catch (RuntimeException backgroundStartDenied) {
+            // Do not crash Android's system-managed VoiceInteractionService.
+            // The owner can reopen Hey Amiki settings and enable listening while
+            // the app is visible if the platform rejected this recovery start.
+        }
     }
 
     public static void disableAndStop(Context context) {
