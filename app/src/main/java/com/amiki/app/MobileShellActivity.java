@@ -284,6 +284,30 @@ public class MobileShellActivity extends Activity {
                 .show();
     }
 
+    private void showVoiceProviderSettings() {
+        AmikiVoiceEngine.Mode current = AmikiVoiceEngine.getMode(this);
+        int selected = current == AmikiVoiceEngine.Mode.SYSTEM ? 1 : 0;
+        AmikiVoiceEngine.Selection active = AmikiVoiceEngine.resolve(this);
+        String explanation = active.androidApi < 31
+                ? "Android 10 does not expose the platform's dedicated on-device SpeechRecognizer. Automatic currently uses the installed Android system provider. A bundled Amiki offline speech model is a later milestone."
+                : "Automatic prefers Android's dedicated on-device recognizer when the platform reports it available. The system option delegates to the installed Android speech-recognition service.";
+        new AlertDialog.Builder(this)
+                .setTitle("Speech recognition provider")
+                .setMessage(explanation)
+                .setSingleChoiceItems(new String[] {
+                        "Automatic (prefer on-device when available)",
+                        "Android system provider"
+                }, selected, (dialog, which) -> {
+                    AmikiVoiceEngine.setMode(this, which == 0
+                            ? AmikiVoiceEngine.Mode.AUTO
+                            : AmikiVoiceEngine.Mode.SYSTEM);
+                    dialog.dismiss();
+                    showSettings();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     private void dispatchAssistantRequest(Intent source) {
         if (source == null) return;
         String command = source.getStringExtra(AssistantEntryActivity.EXTRA_ASSISTANT_REQUEST);
@@ -2639,6 +2663,13 @@ public class MobileShellActivity extends Activity {
                     : "Configure system assistant invocation while Amiki is closed";
         addSettingsRow(body, "🎙", "Voice & Background Assistant", assistantSummary,
                 v -> requestAssistantRole());
+        AmikiVoiceEngine.Mode voiceMode = AmikiVoiceEngine.getMode(this);
+        AmikiVoiceEngine.Selection voiceSelection = AmikiVoiceEngine.resolve(this);
+        String voiceProviderSummary = voiceMode == AmikiVoiceEngine.Mode.SYSTEM
+                ? "Android system provider"
+                : "Automatic • " + voiceSelection.description();
+        addSettingsRow(body, "◉", "Speech Recognition Provider", voiceProviderSummary,
+                v -> showVoiceProviderSettings());
         addSettingsRow(body, "☼", "Appearance", "Theme & display", v -> showAppearanceSettings());
         String modelSummary = model == null
                 ? "Live model details unavailable"
