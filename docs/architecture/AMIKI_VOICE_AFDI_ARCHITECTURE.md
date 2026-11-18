@@ -55,6 +55,7 @@ across consequential execution paths.
 
 - Replaces the external `RecognizerIntent` activity UI with an Amiki-owned capture dialog backed by the `SpeechRecognizer` callback API.
 - Adds an explicit provider policy: AUTO, ON_DEVICE, and SYSTEM.
+- Exposes AUTO versus SYSTEM selection in Amiki Settings; unavailable on-device selection never silently falls back.
 - AUTO prefers Android's dedicated on-device recognizer when the platform reports it available; otherwise it uses the Android system recognition service.
 - ON_DEVICE fails closed when the platform does not expose an on-device recognizer.
 - The Android on-device `SpeechRecognizer` API begins at API 31. The current HOT 9 is API 29, so this compatibility slice uses the system recognizer there. The offline preference is only a hint and is not proof of local processing.
