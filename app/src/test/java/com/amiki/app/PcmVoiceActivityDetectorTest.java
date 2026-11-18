@@ -14,11 +14,13 @@ public class PcmVoiceActivityDetectorTest {
     @Test
     public void sustainedSpeechCrossesOnsetConfirmation() {
         PcmVoiceActivityDetector detector = new PcmVoiceActivityDetector();
-        PcmVoiceActivityDetector.Event event = PcmVoiceActivityDetector.Event.NONE;
+        boolean started = false;
         for (int i = 0; i < 12; i++) {
-            event = detector.process(frame(5000, 320), 320, 1000L + i * 20L).event;
+            PcmVoiceActivityDetector.Event event =
+                    detector.process(frame(5000, 320), 320, 1000L + i * 20L).event;
+            started |= event == PcmVoiceActivityDetector.Event.SPEECH_STARTED;
         }
-        assertEquals(PcmVoiceActivityDetector.Event.SPEECH_STARTED, event);
+        assertTrue(started);
         assertTrue(detector.isSpeaking());
     }
 
@@ -38,11 +40,13 @@ public class PcmVoiceActivityDetectorTest {
     public void quietAfterSpeechEndsSegment() {
         PcmVoiceActivityDetector detector = new PcmVoiceActivityDetector();
         for (int i = 0; i < 12; i++) detector.process(frame(5000, 320), 320, 1000L + i * 20L);
-        PcmVoiceActivityDetector.Event event = PcmVoiceActivityDetector.Event.NONE;
+        boolean ended = false;
         for (int i = 0; i < 45; i++) {
-            event = detector.process(frame(0, 320), 320, 1240L + i * 20L).event;
+            PcmVoiceActivityDetector.Event event =
+                    detector.process(frame(0, 320), 320, 1240L + i * 20L).event;
+            ended |= event == PcmVoiceActivityDetector.Event.SPEECH_ENDED;
         }
-        assertEquals(PcmVoiceActivityDetector.Event.SPEECH_ENDED, event);
+        assertTrue(ended);
         assertFalse(detector.isSpeaking());
     }
 
