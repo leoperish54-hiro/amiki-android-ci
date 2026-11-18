@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Handler;
@@ -62,6 +63,8 @@ public final class AssistantCommandService extends Service {
     private String pendingSpeech;
     private long pendingSpeechTurn;
     private volatile long activeTurnGeneration;
+    private PcmVoiceBargeInMonitor bargeInMonitor;
+    private boolean suppressWakeResumeOnDestroy;
 
     private static final String TTS_UTTERANCE_PREFIX = "amiki_voice_turn_";
 
@@ -95,6 +98,7 @@ public final class AssistantCommandService extends Service {
         HttpURLConnection connection = activeConnection;
         activeConnection = null;
         if (connection != null) connection.disconnect();
+        stopBargeInMonitor();
         if (speech != null) {
             try { speech.stop(); } catch (RuntimeException ignored) { }
         }
@@ -117,6 +121,7 @@ public final class AssistantCommandService extends Service {
 
     private void finishRuntimeForTurn(long turnId) {
         if (!isCurrentTurn(turnId)) return;
+        stopBargeInMonitor();
         voiceSession.finishResponse(turnId);
         activeTurnGeneration = 0L;
         requestRunning = false;
@@ -187,19 +192,24 @@ public final class AssistantCommandService extends Service {
                     @Override public void onStart(String utteranceId) {
                         long turnId = turnFromUtteranceId(utteranceId);
                         if (turnId > 0L && isCurrentTurn(turnId)) {
-                            updateNotification("Amiki is speaking. Local voice activity monitoring is active for interruption.");
+                            startBargeInMonitor(turnId);
+                            updateNotification("Amiki is speaking. The microphone is locally monitoring for interruption.");
                         }
                     }
 
                     @Override public void onDone(String utteranceId) {
                         long turnId = turnFromUtteranceId(utteranceId);
-                        main.post(() -> finishRuntimeForTurn(turnId));
+                        main.post(() -> {
+                            stopBargeInMonitor();
+                            finishRuntimeForTurn(turnId);
+                        });
                     }
 
                     @Override public void onError(String utteranceId) {
                         long turnId = turnFromUtteranceId(utteranceId);
                         main.post(() -> {
                             if (!isCurrentTurn(turnId)) return;
+                            stopBargeInMonitor();
                             updateNotification("Speech output failed. No spoken response was delivered.");
                             main.postDelayed(() -> finishRuntimeForTurn(turnId), 5000L);
                         });
@@ -222,9 +232,9 @@ public final class AssistantCommandService extends Service {
             return START_NOT_STICKY;
         }
 
-        // Android requires a foreground notification immediately after a
-        // startForegroundService request; do this before network or TTS work.
-        startForeground(NOTIFICATION_ID, buildNotification("Working on your voice request…"));
+        // The service handles explicitly invoked voice requests and captures
+        // local PCM only while speaking so the owner can interrupt by voice.
+        startAssistantForeground();
 
         // A new explicit invocation supersedes the previous turn. This is the
         // Jarvis turn-generation rule: older network/TTS callbacks cannot win.
@@ -504,6 +514,72 @@ public final class AssistantCommandService extends Service {
         }
     }
 
+    private void startAssistantForeground() {
+        Notification notification = buildNotification("Working on your voice request…");
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                            | ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+        } else if (Build.VERSION.SDK_INT >= 30) {
+            startForeground(NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+        } else {
+            // Android 10/API 29 predates the microphone FGS type.
+            startForeground(NOTIFICATION_ID, notification);
+        }
+    }
+
+    private void startBargeInMonitor(long turnId) {
+        if (!isCurrentTurn(turnId)) return;
+        stopBargeInMonitor();
+        PcmVoiceBargeInMonitor monitor = new PcmVoiceBargeInMonitor(
+                new PcmVoiceBargeInMonitor.Listener() {
+                    @Override
+                    public void onSpeechStarted() {
+                        main.post(() -> handleBargeIn(turnId));
+                    }
+
+                    @Override
+                    public void onUnavailable(String safeReason) {
+                        main.post(() -> {
+                            if (isCurrentTurn(turnId)) updateNotification(
+                                    "Amiki is speaking. " + safeReason);
+                        });
+                    }
+                });
+        try {
+            monitor.start();
+            bargeInMonitor = monitor;
+        } catch (RuntimeException unavailable) {
+            updateNotification("Amiki is speaking. Local interruption detection is unavailable on this device.");
+            monitor.stop();
+        }
+    }
+
+    private void stopBargeInMonitor() {
+        PcmVoiceBargeInMonitor monitor = bargeInMonitor;
+        bargeInMonitor = null;
+        if (monitor != null) monitor.stop();
+    }
+
+    private void handleBargeIn(long turnId) {
+        if (!isCurrentTurn(turnId)) return;
+        // speechStarted advances the generation so the answer being interrupted
+        // cannot publish another TTS or network callback.
+        if (voiceSession.speechStarted() < 0L) return;
+        suppressWakeResumeOnDestroy = true;
+        cancelActiveTurn();
+        stopForeground(true);
+        // Let Android show the selected assistant session instead of launching
+        // an arbitrary Activity from this foreground response service.
+        boolean shown = AmikiVoiceInteractionService.showAssistantSession();
+        if (!shown) {
+            // Keep the wake service paused; the owner can re-invoke Amiki with
+            // the system gesture. No old response is allowed to resume.
+        }
+        stopSelf();
+    }
+
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && notifications != null) {
             NotificationChannel channel = new NotificationChannel(
@@ -588,7 +664,7 @@ public final class AssistantCommandService extends Service {
         }
         if (notifications != null) notifications.cancel(NOTIFICATION_ID);
         if (activeInstance == this) activeInstance = null;
-        AmikiWakeWordService.resumeIfEnabled();
+        if (!suppressWakeResumeOnDestroy) AmikiWakeWordService.resumeIfEnabled();
         super.onDestroy();
     }
 
