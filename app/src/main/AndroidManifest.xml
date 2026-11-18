@@ -8,6 +8,9 @@
         </intent>
         <package android:name="com.spotify.music" />
         <package android:name="com.whatsapp" />
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
