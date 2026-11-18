@@ -92,6 +92,28 @@ public final class AmikiWakeWordService extends Service {
         else context.startService(intent);
     }
 
+    /**
+     * Called by the system-managed VoiceInteractionService onReady(). The
+     * system may recreate that service after process restart; restart the
+     * microphone foreground service only when the owner previously enabled it.
+     */
+    public static void startIfEnabledFromVoiceInteraction(Context context) {
+        if (context == null || !isEnabled(context) || !isConfigured(context)) return;
+        if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+        if (Build.VERSION.SDK_INT >= 33
+                && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+        AmikiWakeWordService running = instance;
+        if (running != null) {
+            running.resumeListening();
+            return;
+        }
+        Intent intent = new Intent(context, AmikiWakeWordService.class).setAction(ACTION_RESUME);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent);
+        else context.startService(intent);
+    }
+
     public static void disableAndStop(Context context) {
         if (context == null) return;
         setEnabled(context, false);
