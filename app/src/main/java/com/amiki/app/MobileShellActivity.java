@@ -2670,6 +2670,13 @@ public class MobileShellActivity extends Activity {
                 : "Automatic • " + voiceSelection.description();
         addSettingsRow(body, "◉", "Speech Recognition Provider", voiceProviderSummary,
                 v -> showVoiceProviderSettings());
+        String wakeSummary = AmikiWakeWordService.isListening()
+                ? "Listening locally • notification controls available"
+                : AmikiWakeWordService.isEnabled(this)
+                    ? "Enabled • currently paused"
+                    : "Configure opt-in local wake-word listening";
+        addSettingsRow(body, "◉", "Hey Amiki Wake Word", wakeSummary,
+                v -> startActivity(new Intent(this, WakeWordSettingsActivity.class)));
         addSettingsRow(body, "☼", "Appearance", "Theme & display", v -> showAppearanceSettings());
         String modelSummary = model == null
                 ? "Live model details unavailable"
