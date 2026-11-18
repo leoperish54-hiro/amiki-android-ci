@@ -22,6 +22,7 @@ public final class AmikiVoiceInteractionService extends VoiceInteractionService 
         super.onReady();
         instance = this;
         setInvocationEffectEnabled(true);
+        AmikiWakeWordService.startIfEnabledFromVoiceInteraction(this);
     }
 
     @Override
