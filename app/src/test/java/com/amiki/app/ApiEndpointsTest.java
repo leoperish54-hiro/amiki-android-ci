@@ -11,13 +11,11 @@ public class ApiEndpointsTest {
     private static final String GOAL_ID = "a31e7f0d-4a15-4e66-8f25-9e9d9db2a004";
 
     @Test
-    public void uosaGeneralGrantEndpointsUseExpectedRoutes() {
+    public void uosaGeneralGrantEndpointsExposePersistentGrantLifecycle() {
         assertEquals(ApiEndpoints.API_V1 + "/security/general-grants/challenges",
                 ApiEndpoints.UOSA_GENERAL_GRANT_CHALLENGES);
         assertEquals(ApiEndpoints.API_V1 + "/security/general-grants",
                 ApiEndpoints.UOSA_GENERAL_GRANTS);
-        assertEquals(ApiEndpoints.UOSA_GENERAL_GRANTS + "/refresh",
-                ApiEndpoints.UOSA_GENERAL_GRANT_REFRESH);
         assertEquals(ApiEndpoints.UOSA_GENERAL_GRANTS + "/current",
                 ApiEndpoints.UOSA_GENERAL_GRANT_CURRENT);
     }
