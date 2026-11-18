@@ -187,8 +187,7 @@ public final class AssistantCommandService extends Service {
                     @Override public void onStart(String utteranceId) {
                         long turnId = turnFromUtteranceId(utteranceId);
                         if (turnId > 0L && isCurrentTurn(turnId)) {
-                            voiceSession.beginResponse(turnId);
-                            updateNotification("Amiki is speaking. Say a new command to start another turn.");
+                            updateNotification("Amiki is speaking. Local voice activity monitoring is active for interruption.");
                         }
                     }
 
