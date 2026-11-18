@@ -118,7 +118,14 @@ public final class AmikiVoiceEngine {
             if (Build.VERSION.SDK_INT < 31) return null;
             try {
                 return SpeechRecognizer.createOnDeviceSpeechRecognizer(context);
-            } catch (UnsupportedOperationException | IllegalArgumentException unavailable) {
+            } catch (RuntimeException unavailable) {
+                if (selection.requestedMode == Mode.AUTO) {
+                    try {
+                        return SpeechRecognizer.createSpeechRecognizer(context);
+                    } catch (RuntimeException noSystemProvider) {
+                        return null;
+                    }
+                }
                 return null;
             }
         }
