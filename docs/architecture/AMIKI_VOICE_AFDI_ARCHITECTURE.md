@@ -94,7 +94,7 @@ Android's dedicated on-device `SpeechRecognizer` factory is available from API 3
 - Explicit ON_DEVICE mode never silently routes to SYSTEM.
 - Assistant command validation, stop handling, direct app launch and bounded UI task dispatch remain unchanged.
 - Screen observation can recover from a missing/unavailable enumerated root using a valid active application root, while refusing Amiki's own window.
-- Wake-word listening remains disabled until a local detector, disclosure, notification, stop path and device benchmarks are complete.
+- Wake-word listening remains disabled by default and can only be enabled after model provisioning, explicit owner opt-in, permission grants, disclosure and a working Stop control. Physical device benchmarks remain required before production-readiness is declared.
 
 ## Jarvis-to-Amiki adaptation (2026-11-18)
 
