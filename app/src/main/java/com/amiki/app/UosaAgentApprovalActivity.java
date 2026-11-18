@@ -113,7 +113,7 @@ public final class UosaAgentApprovalActivity extends FragmentActivity {
             finishFailure("Strong biometric authentication is unavailable. No agent request was sent.");
             return;
         }
-        status.setText("Refreshing general authorization and requesting a one-use L2 challenge…");
+        status.setText("Using persistent general authorization and requesting a one-use L2 challenge…");
         new Thread(() -> {
             try {
                 String generalToken = OwnerSessionProvider.getGeneralToken(this);
@@ -126,9 +126,9 @@ public final class UosaAgentApprovalActivity extends FragmentActivity {
                 body.put("transaction_hash", transactionHash);
                 JSONObject challenge = postJson(
                         ApiEndpoints.UOSA_ELEVATION_CHALLENGES, body, generalToken);
+                String challengeId = challenge.getString("challenge_id");
                 String message = challenge.getString("message");
-                runOnUiThread(() -> authenticateAndSign(
-                        challenge.getString("challenge_id"), message));
+                runOnUiThread(() -> authenticateAndSign(challengeId, message));
             } catch (Exception failure) {
                 runOnUiThread(() -> finishFailure(
                         "Could not request agent authorization: " + safeMessage(failure)));
