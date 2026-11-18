@@ -118,10 +118,10 @@
         <service
             android:name=".AssistantCommandService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|microphone">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Bounded, user-invoked voice assistant request handling and speech response; no ambient microphone monitoring." />
+                android:value="Bounded, user-invoked voice assistant requests and local microphone voice-activity monitoring only while Amiki is speaking; no ambient standby microphone monitoring." />
         </service>
         <service
             android:name=".SentinelService"
