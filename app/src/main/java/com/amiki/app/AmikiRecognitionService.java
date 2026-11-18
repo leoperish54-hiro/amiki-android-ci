@@ -189,7 +189,7 @@ public final class AmikiRecognitionService extends RecognitionService {
             if (service.packageName == null || service.name == null
                     || getPackageName().equals(service.packageName)
                     || !service.enabled || !service.exported
-                    || !android.Manifest.permission.BIND_SPEECH_RECOGNITION.equals(service.permission)) {
+                    || !"android.permission.BIND_SPEECH_RECOGNITION".equals(service.permission)) {
                 continue;
             }
             return new ComponentName(service.packageName, service.name);
