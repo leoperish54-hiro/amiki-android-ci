@@ -43,3 +43,8 @@ integration, and build the APK. Real wake-word recall, false-accept rate,
 battery impact, screen-off reliability, and microphone lifecycle must still be
 measured on the target Android handset before this feature is declared
 production-ready.
+
+
+## Keyword encoding
+
+The English model expects keywords as SentencePiece BPE pieces, not ordinary raw text. The build pipeline generates the fixed `HEY AMIKI` keyword line using the exact pinned `bpe.model` and `tokens.txt`, verifies every emitted piece exists in the model token table, and packages the resulting `keywords.txt`. At runtime the detector loads that verified file and lets sherpa-onnx apply its own keyword decoder. No guessed token boundaries or provider-side phrase training are used.
