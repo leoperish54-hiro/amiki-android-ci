@@ -15,6 +15,11 @@ public final class AmikiWakeWordPhraseTest {
     }
 
     @Test
+    public void acceptsExactKeywordSpotterLabel() {
+        assertTrue(AmikiWakeWordPhrase.isWakePhrase("hey_amiki"));
+    }
+
+    @Test
     public void rejectsNullAndEmptyResults() {
         assertFalse(AmikiWakeWordPhrase.isWakePhrase(null));
         assertFalse(AmikiWakeWordPhrase.isWakePhrase(""));
