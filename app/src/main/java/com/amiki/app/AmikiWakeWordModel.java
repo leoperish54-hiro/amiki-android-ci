@@ -228,16 +228,25 @@ final class AmikiWakeWordModel {
                          new FileOutputStream(temporary))) {
                 byte[] buffer = new byte[16384];
                 int count;
-                while ((count = input.read(buffer)) != -1) {
+                while (received < asset.size) {
+                    // Never write bytes beyond the independently pinned model size.
+                    // Some CDN responses append transport data; only the exact
+                    // expected prefix is eligible for SHA-256 verification.
+                    int requested = (int) Math.min((long) buffer.length, asset.size - received);
+                    count = input.read(buffer, 0, requested);
+                    if (count == -1) break;
                     received += count;
-                    if (received > asset.size) {
-                        throw new IOException("Downloaded response exceeded the pinned model size; refusing the unverified payload.");
-                    }
                     digest.update(buffer, 0, count);
                     output.write(buffer, 0, count);
                     int fileProgress = (int) Math.min(99L, received * 100L / asset.size);
                     int overall = (index * 100 + fileProgress) / ASSETS.length;
                     report(listener, overall, "Downloading " + asset.name + "…");
+                }
+
+                if (received == asset.size && input.read() != -1) {
+                    android.util.Log.w("AmikiWakeWord",
+                            "Model host sent trailing bytes after pinned asset; ignoring bytes beyond verified size: asset="
+                                    + asset.name + ", host=" + host);
                 }
             }
 
