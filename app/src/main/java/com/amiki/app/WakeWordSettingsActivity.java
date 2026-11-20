@@ -2,7 +2,6 @@ package com.amiki.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -10,37 +9,27 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
-import android.service.voice.VoiceInteractionService;
-import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import ai.picovoice.porcupine.Porcupine;
-
-import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Owner-facing configuration for optional local "Hey Amiki" detection.
- * The Picovoice AccessKey is stored only through AmikiSecretStore (AES-GCM,
- * Android Keystore). Model training uses the provider's phrase-model API;
- * keyword detection after provisioning runs locally on the device.
- */
+/** Owner-facing setup and controls for Amiki's optional local "Hey Amiki" detector. */
 public final class WakeWordSettingsActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private EditText accessKeyInput;
     private TextView status;
-    private Button trainButton;
+    private Button installButton;
     private Button enableButton;
+    private ProgressBar progress;
     private boolean pendingEnable;
+
     private static final int REQUEST_AUDIO = 8201;
     private static final int REQUEST_NOTIFICATIONS = 8202;
 
@@ -48,6 +37,12 @@ public final class WakeWordSettingsActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         render();
+        refreshStatus();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
         refreshStatus();
     }
 
@@ -64,30 +59,19 @@ public final class WakeWordSettingsActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView intro = text(
-                "Local wake-word detection. Once the model is provisioned, “Hey Amiki” is detected on this phone. Standby audio is not sent to a speech-recognition provider.",
+                "Amiki's own on-device wake-word detector. Install its small English keyword model once, then enable hands-free “Hey Amiki” listening. No Picovoice account or AccessKey is required.",
                 14, 0xFFB7C2D9);
         root.addView(intro, withTop(intro, 14));
 
-        TextView keyLabel = text("PICOVOICE ACCESS KEY", 12, 0xFF8C9CB8);
-        root.addView(keyLabel, withTop(keyLabel, 22));
+        installButton = button("Install / repair local wake-word model");
+        installButton.setOnClickListener(v -> installModel());
+        root.addView(installButton, withTop(installButton, 22));
 
-        accessKeyInput = new EditText(this);
-        accessKeyInput.setSingleLine(true);
-        accessKeyInput.setHint("Paste your AccessKey");
-        accessKeyInput.setTextColor(0xFFE9EEFF);
-        accessKeyInput.setHintTextColor(0xFF76839B);
-        accessKeyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        accessKeyInput.setBackgroundColor(0xFF172033);
-        accessKeyInput.setPadding(dp(12), dp(10), dp(12), dp(10));
-        root.addView(accessKeyInput, withTop(accessKeyInput, 8));
-
-        Button saveKey = button("Save AccessKey securely");
-        saveKey.setOnClickListener(v -> saveAccessKey());
-        root.addView(saveKey, withTop(saveKey, 10));
-
-        trainButton = button("Create “Hey Amiki” wake model");
-        trainButton.setOnClickListener(v -> trainModel());
-        root.addView(trainButton, withTop(trainButton, 10));
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        progress.setProgress(0);
+        progress.setVisibility(View.GONE);
+        root.addView(progress, withTop(progress, 10));
 
         enableButton = button("Enable hands-free listening");
         enableButton.setOnClickListener(v -> requestEnable());
@@ -104,7 +88,7 @@ public final class WakeWordSettingsActivity extends Activity {
         root.addView(status, withTop(status, 20));
 
         TextView privacy = text(
-                "Privacy: listening is opt-in, requires a persistent notification, and can be stopped there at any time. Amiki does not start this microphone service at boot. Model creation contacts Picovoice; wake-word detection itself is local.",
+                "Privacy: detection runs on this phone. Standby microphone audio is not uploaded or sent to a speech recognizer. Listening is off until you enable it, requires microphone permission and a persistent notification, and can be stopped from that notification. Amiki does not start wake-word listening from boot.",
                 12, 0xFF8796AF);
         root.addView(privacy, withTop(privacy, 24));
 
@@ -112,94 +96,37 @@ public final class WakeWordSettingsActivity extends Activity {
         setContentView(scroll);
     }
 
-    private void saveAccessKey() {
-        String value = accessKeyInput.getText() == null ? "" : accessKeyInput.getText().toString().trim();
-        if (value.length() < 12 || value.length() > 512) {
-            status.setText("Enter a valid Picovoice AccessKey.");
-            return;
-        }
-        try {
-            AmikiSecretStore.put(this, AmikiWakeWordService.SECRET_ACCESS_KEY, value);
-            accessKeyInput.setText("");
-            status.setText("AccessKey saved in encrypted Android Keystore-backed storage.");
-        } catch (Exception failure) {
-            status.setText("The AccessKey could not be stored securely on this device.");
-        }
-    }
-
-    private void trainModel() {
-        String entered = accessKeyInput.getText() == null ? "" : accessKeyInput.getText().toString().trim();
-        if (!entered.isEmpty()) {
-            try {
-                AmikiSecretStore.put(this, AmikiWakeWordService.SECRET_ACCESS_KEY, entered);
-                accessKeyInput.setText("");
-            } catch (Exception failure) {
-                status.setText("The AccessKey could not be stored securely.");
-                return;
-            }
-        }
-
-        final String accessKey;
-        try {
-            accessKey = AmikiSecretStore.get(this, AmikiWakeWordService.SECRET_ACCESS_KEY);
-        } catch (Exception failure) {
-            status.setText("The saved AccessKey could not be decrypted. Save it again.");
-            return;
-        }
-        if (accessKey == null || accessKey.isEmpty()) {
-            status.setText("Save a Picovoice AccessKey first.");
-            return;
-        }
-
-        trainButton.setEnabled(false);
+    private void installModel() {
+        installButton.setEnabled(false);
         enableButton.setEnabled(false);
-        status.setText("Creating the Hey Amiki model. This step requires an internet connection…");
+        progress.setVisibility(View.VISIBLE);
+        progress.setProgress(0);
+        status.setText("Preparing the verified local wake-word model…");
+
         worker.execute(() -> {
-            File target = AmikiWakeWordService.modelFile(this);
-            File temporary = new File(getFilesDir(), "hey_amiki.pending.ppn");
             try {
-                File parent = target.getParentFile();
-                if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                    throw new IllegalStateException("Could not create the private model directory.");
-                }
-                if (temporary.exists() && !temporary.delete()) {
-                    throw new IllegalStateException("Could not clear the previous temporary model.");
-                }
-
-                Porcupine.trainWakeWordFromPhrase(
-                        accessKey, temporary.getAbsolutePath(), "en", "Hey Amiki");
-
-                if (!temporary.isFile() || temporary.length() == 0L) {
-                    throw new IllegalStateException("Picovoice returned an empty wake model.");
-                }
-
-                // Validate the generated file with the local runtime before publishing it.
-                ai.picovoice.porcupine.Porcupine validation = new Porcupine.Builder()
-                        .setAccessKey(accessKey)
-                        .setKeywordPath(temporary.getAbsolutePath())
-                        .setSensitivity(0.55f)
-                        .build(getApplicationContext());
-                validation.delete();
-
-                if (target.exists() && !target.delete()) {
-                    throw new IllegalStateException("Could not replace the previous wake model.");
-                }
-                if (!temporary.renameTo(target)) {
-                    throw new IllegalStateException("Could not move the validated model into private storage.");
-                }
-
+                AmikiWakeWordModel.install(this, (percentage, detail) -> main.post(() -> {
+                    if (progress == null) return;
+                    progress.setProgress(percentage);
+                    status.setText(detail);
+                }));
+                AmikiWakeWordService.clearLegacyPicovoiceData(this);
                 main.post(() -> {
-                    status.setText("“Hey Amiki” model created and validated. Wake-word detection will run locally.");
-                    trainButton.setEnabled(true);
+                    if (isFinishing()) return;
+                    progress.setVisibility(View.GONE);
+                    installButton.setEnabled(true);
                     enableButton.setEnabled(true);
+                    status.setText("Hey Amiki's local model is installed and verified. No AccessKey is needed.");
                     refreshStatus();
                 });
             } catch (Exception failure) {
-                if (temporary.exists()) temporary.delete();
+                android.util.Log.w("AmikiWakeWord", "Could not install the local wake-word model.", failure);
                 main.post(() -> {
-                    status.setText("Wake model creation failed. Check the AccessKey and network, then retry.");
-                    trainButton.setEnabled(true);
+                    if (isFinishing()) return;
+                    progress.setVisibility(View.GONE);
+                    installButton.setEnabled(true);
                     enableButton.setEnabled(true);
+                    status.setText("Model installation failed. Check your connection and available storage, then retry.");
                 });
             }
         });
@@ -222,7 +149,7 @@ public final class WakeWordSettingsActivity extends Activity {
             return;
         }
         if (!AmikiWakeWordService.isConfigured(this)) {
-            status.setText("Create the Hey Amiki model before enabling listening.");
+            status.setText("Install the local Hey Amiki model before enabling listening.");
             return;
         }
         pendingEnable = true;
@@ -251,7 +178,7 @@ public final class WakeWordSettingsActivity extends Activity {
             status.setText("Hey Amiki enabled. Use the persistent notification to stop listening.");
             pendingEnable = false;
         } catch (RuntimeException failure) {
-            status.setText("Hey Amiki could not be enabled. Check permissions and model configuration.");
+            status.setText("Hey Amiki could not be enabled. Check permissions and local model installation.");
             pendingEnable = false;
         }
         refreshStatus();
@@ -281,11 +208,12 @@ public final class WakeWordSettingsActivity extends Activity {
         String state = AmikiWakeWordService.isListening()
                 ? "Listening locally for “Hey Amiki”."
                 : AmikiWakeWordService.isEnabled(this)
-                    ? "Enabled, currently paused."
+                    ? "Enabled, currently paused or starting."
                     : "Wake word is disabled.";
         status.setText("VoiceInteractionService active: " + serviceReady
-                + "\nWake model ready: " + modelReady
+                + "\nLocal wake-word model ready: " + modelReady
                 + "\n" + state);
+        if (enableButton != null) enableButton.setEnabled(modelReady);
     }
 
     @Override
