@@ -49,7 +49,6 @@ public final class OwnerSecurityActivity extends FragmentActivity {
     private static final String KEYSTORE = "AndroidKeyStore";
     static final String KEY_ALIAS = "amiki.uosa.owner-signing.v1";
     private static final String ACTIVE_KEY_ALIAS_PREF = "owner_key_alias";
-    private static final String CONTINUITY_KEY_ALIAS = "amiki.uosa.continuity.v1";
     private static final int AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG;
     // Explicit Android-client scope profile. L2 scopes remain transaction-bound
     // and require a fresh biometric signature for each protected operation.
@@ -57,7 +56,6 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             "ale.review.read",
             "ale.review.approve",
             "ale.review.reject",
-            "ale.knowledge.submit",
             "ale.progress.read",
             "ale.progress.write",
             "ale.projects.read",
@@ -320,10 +318,10 @@ public final class OwnerSecurityActivity extends FragmentActivity {
                 && enrolled);
         backendState.setText("General: "
                 + (OwnerSessionVault.generalGrantId(this) != null
-                    ? (OwnerSessionVault.hasGeneralToken(this) ? "access token active; renewable grant stored"
-                        : "persistent grant stored; access token will renew on next request")
+                    ? (OwnerSessionVault.hasGeneralToken(this) ? "persistent access active; no session expiry"
+                        : "grant exists but local access token is unavailable; owner re-authorization required")
                     : "no persistent grant")
-                + "\\nPrivileged Cipher/ALE/Cloud: "
+                + "\nPrivileged Cipher/ALE/Cloud: "
                 + (OwnerSessionVault.hasPrivilegedToken(this)
                     ? "15-minute session active until " + OwnerSessionVault.privilegedExpiresAt(this)
                     : "no active 15-minute session")
@@ -488,15 +486,13 @@ public final class OwnerSecurityActivity extends FragmentActivity {
 
     private void createGeneralGrant() {
         if (!hasKey() || operationInFlight || !isBackendEnrolled()) return;
-        startOperation("Preparing a separate hardware-backed continuity key…");
+        startOperation("Requesting persistent general access…");
         new Thread(() -> {
             try {
-                String continuityPublicKey = ensureContinuityKey();
                 JSONObject request = new JSONObject();
                 request.put("device_id", deviceId);
                 request.put("audience", "amiki-core");
                 request.put("scopes", scopeProfile(false));
-                request.put("continuity_public_key", continuityPublicKey);
                 JSONObject challenge = postJson(
                         ApiEndpoints.UOSA_GENERAL_GRANT_CHALLENGES, request, null);
                 String message = challenge.getString("message");
@@ -508,16 +504,15 @@ public final class OwnerSecurityActivity extends FragmentActivity {
                                 complete.put("signature", signature);
                                 JSONObject grant = postJson(ApiEndpoints.UOSA_GENERAL_GRANTS, complete, null);
                                 if (!"general".equals(grant.optString("session_class"))
-                                        || !grant.optBoolean("grant_persistent", false)) {
-                                    throw new IllegalStateException("Backend did not confirm a persistent general grant.");
+                                        || !grant.optBoolean("grant_persistent", false)
+                                        || grant.optBoolean("session_expires", true)) {
+                                    throw new IllegalStateException("Backend did not confirm non-expiring persistent general access.");
                                 }
                                 OwnerSessionVault.saveGeneralToken(this,
                                         grant.getString("access_token"),
-                                        grant.getLong("expires_at"),
                                         grant.getString("grant_id"));
                                 runOnUiThread(() -> finishOperation(
-                                        "Persistent general access is active. Its short-lived token renews silently using the separate device continuity key. Scopes: "
-                                                + grant.optJSONArray("scopes")));
+                                        "Persistent general access is active. Chat, agents, memory and other general Amiki capabilities have no session timer; access ends only when explicitly revoked or this device is revoked."));
                             } catch (Exception failure) {
                                 runOnUiThread(() -> finishOperation(
                                         "General authorization failed: " + safeMessage(failure)));
@@ -573,40 +568,6 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         }, "amiki-uosa-privileged-session").start();
     }
 
-    private String ensureContinuityKey() throws Exception {
-        KeyStore store = loadKeyStore();
-        if (!store.containsAlias(CONTINUITY_KEY_ALIAS)) {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_EC, KEYSTORE);
-            KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
-                    CONTINUITY_KEY_ALIAS,
-                    KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
-                    .setAlgorithmParameterSpec(new java.security.spec.ECGenParameterSpec("secp256r1"))
-                    .setDigests(KeyProperties.DIGEST_SHA256)
-                    .setUserAuthenticationRequired(false)
-                    .build();
-            generator.initialize(spec);
-            java.security.KeyPair pair = generator.generateKeyPair();
-            KeyInfo info = java.security.KeyFactory.getInstance(
-                    pair.getPrivate().getAlgorithm(), KEYSTORE)
-                    .getKeySpec(pair.getPrivate(), KeyInfo.class);
-            if (!info.isInsideSecureHardware()) {
-                store.deleteEntry(CONTINUITY_KEY_ALIAS);
-                throw new IllegalStateException(
-                        "This device did not provide a hardware-backed continuity key. Persistent general access is disabled rather than using a software key.");
-            }
-        }
-        java.security.cert.Certificate certificate = loadKeyStore().getCertificate(CONTINUITY_KEY_ALIAS);
-        if (certificate == null) throw new IllegalStateException("Continuity public key is unavailable.");
-        PrivateKey privateKey = (PrivateKey) loadKeyStore().getKey(CONTINUITY_KEY_ALIAS, null);
-        KeyInfo info = java.security.KeyFactory.getInstance(privateKey.getAlgorithm(), KEYSTORE)
-                .getKeySpec(privateKey, KeyInfo.class);
-        if (!info.isInsideSecureHardware() || info.isUserAuthenticationRequired()) {
-            throw new IllegalStateException("The continuity key must be hardware-backed and separate from biometric owner approval.");
-        }
-        return Base64.encodeToString(certificate.getPublicKey().getEncoded(), Base64.NO_WRAP);
-    }
-
     private void revokeGeneralGrant() {
         if (operationInFlight || OwnerSessionVault.generalGrantId(this) == null) return;
         startOperation("Revoking persistent general access for this device…");
@@ -624,8 +585,6 @@ public final class OwnerSecurityActivity extends FragmentActivity {
                 int code = connection.getResponseCode();
                 if (code < 200 || code >= 300) throw new java.io.IOException("Backend returned HTTP " + code + ".");
                 OwnerSessionVault.clearGeneral(this);
-                KeyStore store = loadKeyStore();
-                if (store.containsAlias(CONTINUITY_KEY_ALIAS)) store.deleteEntry(CONTINUITY_KEY_ALIAS);
                 runOnUiThread(() -> finishOperation("Persistent general grant revoked. Chat, agents and other general capabilities will require owner re-authorization."));
             } catch (Exception failure) {
                 runOnUiThread(() -> finishOperation("Could not revoke persistent general access: " + safeMessage(failure)));

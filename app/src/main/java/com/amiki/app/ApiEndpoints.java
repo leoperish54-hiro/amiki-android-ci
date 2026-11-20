@@ -42,8 +42,6 @@ final class ApiEndpoints {
     static final String UOSA_RECOVERY_COMPLETE = API_V1 + "/security/recovery/complete";
     static final String UOSA_GENERAL_GRANT_CHALLENGES = API_V1 + "/security/general-grants/challenges";
     static final String UOSA_GENERAL_GRANTS = API_V1 + "/security/general-grants";
-    static final String UOSA_GENERAL_GRANT_REFRESH_CHALLENGES_PREFIX = UOSA_GENERAL_GRANTS + "/";
-    static final String UOSA_GENERAL_GRANT_REFRESH = UOSA_GENERAL_GRANTS + "/refresh";
     static final String UOSA_GENERAL_GRANT_CURRENT = UOSA_GENERAL_GRANTS + "/current";
     static final String CIPHER_STATUS = API_V1 + "/cipher/status";
     static final String CIPHER_INSPECT = API_V1 + "/cipher/inspect";
