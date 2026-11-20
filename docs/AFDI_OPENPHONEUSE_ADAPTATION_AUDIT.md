@@ -51,7 +51,7 @@ Therefore:
 - If that context is missing, ambiguous, stale or unavailable from the accessibility tree, require owner input and do not execute the commit action.
 - A compose screen is not proof of sending; an accepted tap is not proof of delivery or success.
 
-This is the next AFDI adaptation target. It is deliberately not smuggled into the current patch because it changes the owner-approval UX and must be designed and tested as its own safety boundary.
+A first fail-closed guard is now implemented in `UiActionRiskPolicy`: tap proposals whose visible labels begin with common commit/destructive verbs (for example Send, Submit, Pay, Transfer, Delete, Publish, Confirm and Share) pause for owner review before any tap is queued. Regression tests cover the known labels, ordinary navigation labels, case/whitespace normalization and missing-label fail-closed behaviour. This is a conservative label heuristic, not a complete semantic security classifier; it can produce false positives and cannot identify every unlabeled or localized commit control. It does not yet replace the dedicated contextual preview required to automate a send/payment/transfer safely.
 
 ## Data flow and privacy boundary
 
