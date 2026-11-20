@@ -144,6 +144,16 @@ public class UiActionDispatcherTest {
                 snapshot(button("Pause", true)), 0L));
     }
 
+    @Test public void semanticPostconditionRejectsA differentForegroundApp() {
+        UiNodeSnapshot before = snapshot(button("Play"));
+        UiActionDispatcher.Request request = UiActionDispatcher.tap(
+                "task-foreign-package", before, "Play",
+                UiActionDispatcher.ExpectedUiState.textVisible("Pause"), 0L);
+        UiNodeSnapshot foreignApp = new UiNodeSnapshot("com.other.app", 7, 0L,
+                Arrays.asList(button("Pause")));
+        assertFalse(request.matchesPostcondition(foreignApp, 0L));
+    }
+
     @Test public void semanticVerificationRejectsIncompleteAccessibilityTrees() {
         UiNodeSnapshot before = new UiNodeSnapshot(
                 "com.example.app", 7, 0L, Arrays.asList(button("Play")), false);
