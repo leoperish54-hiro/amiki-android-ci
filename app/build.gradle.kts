@@ -1,3 +1,4 @@
+import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -23,25 +24,28 @@ val sherpaAarUrl =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar"
 val sherpaAarSha256 = "a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7"
 
-fun sha256(file: java.io.File): String {
+fun sha256(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().buffered().use { input ->
+    val input = file.inputStream()
+    try {
         val buffer = ByteArray(32 * 1024)
         while (true) {
             val count = input.read(buffer)
             if (count < 0) break
             digest.update(buffer, 0, count)
         }
+    } finally {
+        input.close()
     }
     return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
 /*
  * The upstream Android AAR is fetched only during builds and is SHA-256 pinned.
- * This keeps the 47 MB native dependency out of both source repositories while
+ * This keeps the native dependency out of both source repositories while
  * ensuring CI and local builds resolve the exact same official release.
  */
-val downloadSherpaOnnxAar by tasks.registering {
+val downloadSherpaOnnxAar = tasks.register("downloadSherpaOnnxAar") {
     outputs.file(sherpaAar)
     outputs.upToDateWhen { false }
     doLast {
@@ -50,7 +54,7 @@ val downloadSherpaOnnxAar by tasks.registering {
             return@doLast
         }
         destination.parentFile.mkdirs()
-        val temporary = java.io.File(destination.parentFile, destination.name + ".part")
+        val temporary = File(destination.parentFile, destination.name + ".part")
         if (temporary.exists()) temporary.delete()
 
         var connection: HttpURLConnection? = null
@@ -65,9 +69,23 @@ val downloadSherpaOnnxAar by tasks.registering {
             if (status !in 200..299) {
                 throw GradleException("sherpa-onnx download failed with HTTP $status")
             }
-            connection.inputStream.use { input ->
-                FileOutputStream(temporary).use { output -> input.copyTo(output) }
+            val input = connection.inputStream
+            val output = FileOutputStream(temporary)
+            try {
+                val buffer = ByteArray(32 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+            } finally {
+                try {
+                    output.close()
+                } finally {
+                    input.close()
+                }
             }
+
             val actual = sha256(temporary)
             if (actual != sherpaAarSha256) {
                 throw GradleException("sherpa-onnx AAR SHA-256 mismatch: $actual")
