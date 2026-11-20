@@ -2,7 +2,9 @@ name: Amiki Android CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feat/amiki-owned-hey-amiki-ci-validation
   pull_request:
   workflow_dispatch:
 

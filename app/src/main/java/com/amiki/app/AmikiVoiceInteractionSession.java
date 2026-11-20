@@ -19,6 +19,18 @@ public final class AmikiVoiceInteractionSession extends VoiceInteractionSession 
         Intent assist = new Intent(getContext(), AssistantEntryActivity.class);
         assist.setAction(Intent.ACTION_ASSIST);
         assist.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        startVoiceActivity(assist);
+        try {
+            startVoiceActivity(assist);
+        } catch (RuntimeException launchFailure) {
+            // Android owns this session lifecycle. A rejected activity launch
+            // must not crash the selected assistant service or leave a blank UI.
+            android.util.Log.w("AmikiVoiceSession",
+                    "Android rejected the assistant entry activity launch.", launchFailure);
+            try {
+                hide();
+            } catch (RuntimeException ignored) {
+                // The system may already have dismissed the session.
+            }
+        }
     }
 }
