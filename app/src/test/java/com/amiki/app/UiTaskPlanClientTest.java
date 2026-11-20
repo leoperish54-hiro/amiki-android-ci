@@ -191,7 +191,7 @@ public class UiTaskPlanClientTest {
 
         assertEquals("Search", visiblePayload.getString("label"));
         assertEquals("com.youtube:id/search", visiblePayload.getString("view_id"));
-        assertEquals("", hidden.label());
+        assertEquals("", hidden.label()); // Editable field content is redacted at snapshot construction.
         assertEquals("", hiddenPayload.getString("label"));
         assertEquals("", hiddenPayload.getString("view_id"));
         assertEquals("", hiddenPayload.getString("class_name"));

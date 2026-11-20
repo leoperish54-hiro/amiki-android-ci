@@ -10,10 +10,9 @@ import android.speech.SpeechRecognizer;
 /**
  * Amiki-owned voice-provider selection and lifecycle boundary.
  *
- * Android's system recognizer is an optional compatibility provider. On-device
- * Android recognition is selected only when the platform explicitly reports it
- * available. A future bundled Amiki model provider can be added behind this
- * boundary without changing assistant command dispatch.
+ * Amiki owns provider policy and the local Vosk runtime. Android's system
+ * recognizer is an explicit compatibility provider, never a requirement for
+ * the Amiki Offline English mode.
  */
 public final class AmikiVoiceEngine {
     private static final String PREFERENCES = "amiki_voice_engine";
@@ -22,12 +21,14 @@ public final class AmikiVoiceEngine {
     public enum Mode {
         AUTO,
         ON_DEVICE,
-        SYSTEM
+        SYSTEM,
+        OFFLINE
     }
 
     public enum Provider {
         ON_DEVICE,
         SYSTEM,
+        OFFLINE,
         UNAVAILABLE
     }
 
@@ -52,6 +53,8 @@ public final class AmikiVoiceEngine {
                     return "Android on-device speech recognition";
                 case SYSTEM:
                     return "Android system speech provider";
+                case OFFLINE:
+                    return "Amiki offline English model (runs locally; no network during recognition)";
                 default:
                     return "Requested on-device recognizer unavailable";
             }
@@ -94,38 +97,44 @@ public final class AmikiVoiceEngine {
                 onDeviceAvailable = false;
             }
         }
+        boolean offlineAvailable = AmikiOfflineSpeechModel.isInstalled(context);
         return new Selection(mode,
-                selectProvider(mode, Build.VERSION.SDK_INT, onDeviceAvailable),
+                selectProvider(mode, Build.VERSION.SDK_INT, onDeviceAvailable, offlineAvailable),
                 Build.VERSION.SDK_INT);
     }
 
     /** Pure provider policy, exposed for deterministic unit tests. */
     static Provider selectProvider(Mode mode, int sdkInt, boolean onDeviceAvailable) {
+        return selectProvider(mode, sdkInt, onDeviceAvailable, false);
+    }
+
+    static Provider selectProvider(Mode mode, int sdkInt, boolean onDeviceAvailable,
+                                   boolean offlineModelAvailable) {
         Mode requested = mode == null ? Mode.AUTO : mode;
         if (requested == Mode.SYSTEM) return Provider.SYSTEM;
+        if (requested == Mode.OFFLINE) {
+            return offlineModelAvailable ? Provider.OFFLINE : Provider.UNAVAILABLE;
+        }
         if (requested == Mode.ON_DEVICE) {
             return sdkInt >= 31 && onDeviceAvailable
                     ? Provider.ON_DEVICE : Provider.UNAVAILABLE;
         }
-        return sdkInt >= 31 && onDeviceAvailable
-                ? Provider.ON_DEVICE : Provider.SYSTEM;
+        if (sdkInt >= 31 && onDeviceAvailable) return Provider.ON_DEVICE;
+        if (offlineModelAvailable) return Provider.OFFLINE;
+        return Provider.SYSTEM;
     }
 
     /** Must be called from the Android main thread, as required by SpeechRecognizer. */
     public static SpeechRecognizer createRecognizer(Context context, Selection selection) {
         if (context == null || selection == null || !selection.isAvailable()) return null;
+        // The local Vosk path is driven by AmikiOfflineSpeechEngine, never by
+        // Android SpeechRecognizer. Refuse to silently substitute providers.
+        if (selection.provider == Provider.OFFLINE) return null;
         if (selection.provider == Provider.ON_DEVICE) {
             if (Build.VERSION.SDK_INT < 31) return null;
             try {
                 return SpeechRecognizer.createOnDeviceSpeechRecognizer(context);
             } catch (RuntimeException unavailable) {
-                if (selection.requestedMode == Mode.AUTO) {
-                    try {
-                        return SpeechRecognizer.createSpeechRecognizer(context);
-                    } catch (RuntimeException noSystemProvider) {
-                        return null;
-                    }
-                }
                 return null;
             }
         }
@@ -138,8 +147,9 @@ public final class AmikiVoiceEngine {
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         request.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
         request.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
-        // A provider may ignore this hint. Amiki never treats it as proof that
-        // audio stayed on-device; a bundled local model is a separate milestone.
+        // A system provider may ignore this hint. Amiki never treats it as
+        // proof that audio stayed on-device; the Vosk option is separately
+        // selected and guarantees that microphone transcription stays local.
         request.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         return request;
     }

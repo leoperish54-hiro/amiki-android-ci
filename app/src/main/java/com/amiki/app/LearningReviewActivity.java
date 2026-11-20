@@ -181,7 +181,7 @@ public class LearningReviewActivity extends FragmentActivity {
     }
 
     private void updateTokenStatus() {
-        boolean active = OwnerSessionVault.hasToken(this);
+        boolean active = OwnerSessionVault.hasPrivilegedToken(this);
         statusView.setText(active
                 ? "An encrypted UOSA L1 session is available on this device."
                 : "No active UOSA session. Enroll this device and create a fresh L1 session in Owner Security.");
@@ -192,9 +192,9 @@ public class LearningReviewActivity extends FragmentActivity {
         final String requestedKind = selectedKind;
         final String token;
         try {
-            token = OwnerSessionVault.readToken(this);
+            token = OwnerSessionVault.readPrivilegedToken(this);
         } catch (Exception failure) {
-            OwnerSessionVault.clear(this);
+            OwnerSessionVault.clearPrivileged(this);
             updateTokenStatus();
             showQueueMessage("The stored UOSA session could not be unlocked. Create a fresh session in Owner Security.");
             return;
@@ -356,9 +356,9 @@ public class LearningReviewActivity extends FragmentActivity {
     private void submitDecision(LearningReviewItem item, String action) {
         final String baseToken;
         try {
-            baseToken = OwnerSessionVault.readToken(this);
+            baseToken = OwnerSessionVault.readPrivilegedToken(this);
         } catch (Exception failure) {
-            OwnerSessionVault.clear(this);
+            OwnerSessionVault.clearPrivileged(this);
             updateTokenStatus();
             showQueueMessage("The UOSA session could not be unlocked. Create a fresh L1 session.");
             return;
@@ -506,7 +506,9 @@ public class LearningReviewActivity extends FragmentActivity {
         try {
             KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
             keyStore.load(null);
-            PrivateKey privateKey = (PrivateKey) keyStore.getKey(UOSA_KEY_ALIAS, null);
+            String activeAlias = getSharedPreferences("amiki_uosa_device", MODE_PRIVATE)
+                    .getString("owner_key_alias", UOSA_KEY_ALIAS);
+            PrivateKey privateKey = (PrivateKey) keyStore.getKey(activeAlias, null);
             if (privateKey == null) throw new IllegalStateException("The enrolled owner signing key is unavailable.");
             Signature signature = Signature.getInstance("SHA256withECDSA");
             signature.initSign(privateKey);

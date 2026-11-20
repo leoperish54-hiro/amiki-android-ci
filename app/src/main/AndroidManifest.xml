@@ -22,6 +22,8 @@
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
@@ -32,8 +34,19 @@
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
         <activity
+            android:name=".WakeWordSettingsActivity"
+            android:exported="false" />
+        <activity
             android:name=".OwnerSecurityActivity"
             android:exported="false" />
+        <activity
+            android:name=".UosaRecoveryActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".UosaAgentApprovalActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".UiActionApprovalActivity"
             android:exported="false"
@@ -75,6 +88,42 @@
             </intent-filter>
         </activity>
         <service
+            android:name=".AmikiVoiceInteractionService"
+            android:label="Amiki"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/amiki_voice_interaction" />
+        </service>
+        <service
+            android:name=".AmikiRecognitionService"
+            android:label="Amiki Speech Recognition"
+            android:permission="android.permission.BIND_SPEECH_RECOGNITION"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/amiki_recognition_service" />
+        </service>
+        <service
+            android:name=".AmikiVoiceInteractionSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+        <service
+            android:name=".AmikiWakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|microphone">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Owner-enabled local Hey Amiki keyword detection; standby audio is processed on-device and is not streamed to a remote speech recognizer." />
+        </service>
+        <service
             android:name=".AccessibilityOperatorService"
             android:label="Amiki UI Operator"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -89,10 +138,10 @@
         <service
             android:name=".AssistantCommandService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|microphone">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Bounded, user-invoked voice assistant request handling and speech response; no ambient microphone monitoring." />
+                android:value="Bounded, user-invoked voice assistant requests and local microphone voice-activity monitoring only while Amiki is speaking; no ambient standby microphone monitoring." />
         </service>
         <service
             android:name=".SentinelService"

@@ -16,33 +16,105 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Stores a short-lived UOSA session token encrypted with a dedicated Keystore AES-GCM key. */
+/** Encrypted non-expiring general access and separately expiring privileged sessions. */
 final class OwnerSessionVault {
-    private static final String PREFS = "amiki_uosa_session";
+    private static final String GENERAL_PREFS = "amiki_uosa_general_session";
+    private static final String PRIVILEGED_PREFS = "amiki_uosa_privileged_session";
     private static final String CIPHERTEXT = "token_ciphertext";
     private static final String IV = "token_iv";
     private static final String EXPIRES_AT = "expires_at_epoch_seconds";
-    private static final String KEY_ALIAS = "com.amiki.app.uosa-session-token";
+    private static final String GRANT_ID = "persistent_grant_id";
+    private static final String GENERAL_KEY_ALIAS = "com.amiki.app.uosa-general-session-token";
+    private static final String PRIVILEGED_KEY_ALIAS = "com.amiki.app.uosa-privileged-session-token";
     private static final String KEYSTORE = "AndroidKeyStore";
     private static final int GCM_TAG_BITS = 128;
 
     private OwnerSessionVault() {}
 
     static boolean hasToken(Context context) {
-        try {
-            return readToken(context) != null;
-        } catch (Exception ignored) {
-            return false;
-        }
+        return hasGeneralToken(context);
     }
 
-    static void saveToken(Context context, String token, long expiresAtEpochSeconds) throws Exception {
+    static boolean hasGeneralToken(Context context) {
+        try { return readGeneralToken(context) != null; }
+        catch (Exception ignored) { return false; }
+    }
+
+    static boolean hasPrivilegedToken(Context context) {
+        try { return readPrivilegedToken(context) != null; }
+        catch (Exception ignored) { return false; }
+    }
+
+    static void saveGeneralToken(Context context, String token, String grantId)
+            throws Exception {
+        if (grantId == null || grantId.trim().length() < 32 || grantId.length() > 128) {
+            throw new IllegalArgumentException("Invalid UOSA persistent grant identifier.");
+        }
+        saveProfile(context, true, token, 0L);
+        generalPreferences(context).edit().putString(GRANT_ID, grantId).apply();
+    }
+
+    static void savePrivilegedToken(Context context, String token, long expiresAtEpochSeconds)
+            throws Exception {
+        saveProfile(context, false, token, expiresAtEpochSeconds);
+    }
+
+    static String readGeneralToken(Context context) throws Exception {
+        return readProfile(context, true);
+    }
+
+    static String readPrivilegedToken(Context context) throws Exception {
+        return readProfile(context, false);
+    }
+
+    /** Compatibility: general capability requests use the non-expiring general profile. */
+    static void saveToken(Context context, String token, long ignoredExpiry) throws Exception {
+        saveProfile(context, true, token, 0L);
+    }
+
+    static String readToken(Context context) throws Exception {
+        return readGeneralToken(context);
+    }
+
+    static String generalGrantId(Context context) {
+        return generalPreferences(context).getString(GRANT_ID, null);
+    }
+
+    static long expiresAt(Context context) {
+        return generalPreferences(context).getLong(EXPIRES_AT, 0L);
+    }
+
+    static long privilegedExpiresAt(Context context) {
+        return privilegedPreferences(context).getLong(EXPIRES_AT, 0L);
+    }
+
+    static void clearExpiredGeneralToken(Context context) {
+        clearAccessToken(context, true);
+    }
+
+    static void clearGeneral(Context context) {
+        clearAccessToken(context, true);
+        generalPreferences(context).edit().remove(GRANT_ID).apply();
+    }
+
+    static void clearPrivileged(Context context) {
+        clearAccessToken(context, false);
+    }
+
+    static void clear(Context context) {
+        clearGeneral(context);
+        clearPrivileged(context);
+    }
+
+    private static void saveProfile(
+            Context context, boolean general, String token, long expiresAtEpochSeconds
+    ) throws Exception {
         if (token == null || token.trim().length() < 32 || token.length() > 256) {
             throw new IllegalArgumentException("Invalid UOSA session token.");
         }
         long now = System.currentTimeMillis() / 1000L;
-        if (expiresAtEpochSeconds <= now || expiresAtEpochSeconds > now + 1800L) {
-            throw new IllegalArgumentException("Invalid UOSA session expiry.");
+        if (!general && (expiresAtEpochSeconds <= now || expiresAtEpochSeconds > now + 1800L)) {
+            throw new IllegalArgumentException("Invalid UOSA privileged-session expiry.");
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             throw new IllegalStateException("Android Keystore AES-GCM is unavailable.");
@@ -52,14 +124,16 @@ final class OwnerSessionVault {
         byte[] encrypted = null;
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey());
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(general));
             iv = cipher.getIV();
             encrypted = cipher.doFinal(plaintext);
-            preferences(context).edit()
+            SharedPreferences prefs = general ? generalPreferences(context) : privilegedPreferences(context);
+            SharedPreferences.Editor editor = prefs.edit()
                     .putString(IV, Base64.encodeToString(iv, Base64.NO_WRAP))
-                    .putString(CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                    .putLong(EXPIRES_AT, expiresAtEpochSeconds)
-                    .apply();
+                    .putString(CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP));
+            if (general) editor.remove(EXPIRES_AT);
+            else editor.putLong(EXPIRES_AT, expiresAtEpochSeconds);
+            editor.apply();
         } finally {
             Arrays.fill(plaintext, (byte) 0);
             if (encrypted != null) Arrays.fill(encrypted, (byte) 0);
@@ -67,14 +141,15 @@ final class OwnerSessionVault {
         }
     }
 
-    static String readToken(Context context) throws Exception {
-        SharedPreferences prefs = preferences(context);
+    private static String readProfile(Context context, boolean general) throws Exception {
+        SharedPreferences prefs = general ? generalPreferences(context) : privilegedPreferences(context);
         String encodedIv = prefs.getString(IV, null);
         String encodedCiphertext = prefs.getString(CIPHERTEXT, null);
         long expiresAt = prefs.getLong(EXPIRES_AT, 0L);
-        if (encodedIv == null || encodedCiphertext == null || expiresAt <= 0L) return null;
-        if (expiresAt <= System.currentTimeMillis() / 1000L) {
-            clear(context);
+        if (encodedIv == null || encodedCiphertext == null) return null;
+        if (!general && expiresAt <= 0L) return null;
+        if (!general && expiresAt <= System.currentTimeMillis() / 1000L) {
+            clearAccessToken(context, false);
             return null;
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -87,11 +162,12 @@ final class OwnerSessionVault {
             iv = Base64.decode(encodedIv, Base64.NO_WRAP);
             encrypted = Base64.decode(encodedCiphertext, Base64.NO_WRAP);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(general),
+                    new GCMParameterSpec(GCM_TAG_BITS, iv));
             plaintext = cipher.doFinal(encrypted);
             return new String(plaintext, StandardCharsets.UTF_8);
         } catch (Exception failure) {
-            clear(context);
+            clearAccessToken(context, general);
             throw failure;
         } finally {
             if (plaintext != null) Arrays.fill(plaintext, (byte) 0);
@@ -100,40 +176,39 @@ final class OwnerSessionVault {
         }
     }
 
-    static long expiresAt(Context context) {
-        return preferences(context).getLong(EXPIRES_AT, 0L);
-    }
-
-    static void clear(Context context) {
-        preferences(context).edit()
-                .remove(CIPHERTEXT)
-                .remove(IV)
-                .remove(EXPIRES_AT)
-                .apply();
+    private static void clearAccessToken(Context context, boolean general) {
+        (general ? generalPreferences(context) : privilegedPreferences(context)).edit()
+                .remove(CIPHERTEXT).remove(IV).remove(EXPIRES_AT).apply();
         try {
             KeyStore keyStore = KeyStore.getInstance(KEYSTORE);
             keyStore.load(null);
-            if (keyStore.containsAlias(KEY_ALIAS)) keyStore.deleteEntry(KEY_ALIAS);
+            String alias = general ? GENERAL_KEY_ALIAS : PRIVILEGED_KEY_ALIAS;
+            if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias);
         } catch (Exception ignored) {
-            // Clearing ciphertext disables use even if Keystore cleanup fails.
+            // Ciphertext removal disables use even if Keystore cleanup fails.
         }
     }
 
-    private static SharedPreferences preferences(Context context) {
-        return context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    private static SharedPreferences generalPreferences(Context context) {
+        return context.getApplicationContext().getSharedPreferences(GENERAL_PREFS, Context.MODE_PRIVATE);
     }
 
-    private static SecretKey getOrCreateKey() throws Exception {
+    private static SharedPreferences privilegedPreferences(Context context) {
+        return context.getApplicationContext().getSharedPreferences(PRIVILEGED_PREFS, Context.MODE_PRIVATE);
+    }
+
+    private static SecretKey getOrCreateKey(boolean general) throws Exception {
+        String alias = general ? GENERAL_KEY_ALIAS : PRIVILEGED_KEY_ALIAS;
         KeyStore keyStore = KeyStore.getInstance(KEYSTORE);
         keyStore.load(null);
-        if (keyStore.containsAlias(KEY_ALIAS)) {
-            java.security.Key key = keyStore.getKey(KEY_ALIAS, null);
+        if (keyStore.containsAlias(alias)) {
+            java.security.Key key = keyStore.getKey(alias, null);
             if (key instanceof SecretKey) return (SecretKey) key;
-            keyStore.deleteEntry(KEY_ALIAS);
+            keyStore.deleteEntry(alias);
         }
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE);
         generator.init(new KeyGenParameterSpec.Builder(
-                KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                alias, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setRandomizedEncryptionRequired(true)

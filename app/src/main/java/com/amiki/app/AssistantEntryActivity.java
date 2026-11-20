@@ -5,6 +5,9 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.provider.Settings;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -22,9 +25,19 @@ import java.util.regex.Pattern;
 public final class AssistantEntryActivity extends Activity {
     static final String EXTRA_ASSISTANT_REQUEST = "com.amiki.app.extra.ASSISTANT_REQUEST";
     private boolean recognitionLaunched;
+    private boolean handedOffToRuntime;
+    private volatile boolean activityDestroyed;
+    private boolean offlinePermissionPending;
+    private boolean offlineRecognitionComplete;
+    private AmikiOfflineSpeechEngine offlineEngine;
+    private static final int REQUEST_OFFLINE_AUDIO = 8127;
     private SpeechRecognizer activeRecognizer;
     private AlertDialog listeningDialog;
     private AmikiVoiceEngine.Selection voiceSelection;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final VoiceTranscriptAssembler transcriptAssembler = new VoiceTranscriptAssembler();
+    private final AmikiVoiceSession voiceSession = new AmikiVoiceSession();
+    private Runnable transcriptFlush;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -38,7 +51,10 @@ public final class AssistantEntryActivity extends Activity {
             finish();
             return;
         }
-        // Recreate the short-lived recognition session after an Activity recreation.
+        // Release the optional local keyword detector before command STT opens the microphone.
+        AmikiWakeWordService.pauseForAssistant();
+        // A fresh generation owns this assistant turn; stale callbacks are ignored.
+        voiceSession.beginCommand();
         recognitionLaunched = false;
         startRecognition();
     }
@@ -151,8 +167,10 @@ public final class AssistantEntryActivity extends Activity {
         if (result.accepted) {
             try {
                 TermuxBackendLauncher.start(this);
+                handedOffToRuntime = true;
                 AssistantCommandService.startDeviceTask(this, continuation);
             } catch (RuntimeException denied) {
+                handedOffToRuntime = false;
                 Toast.makeText(this,
                         "The background task runtime could not start. Only the app launch was requested.",
                         Toast.LENGTH_LONG).show();
@@ -186,8 +204,10 @@ public final class AssistantEntryActivity extends Activity {
     private void startDeviceTaskNow(String command) {
         try {
             TermuxBackendLauncher.start(this);
+            handedOffToRuntime = true;
             AssistantCommandService.startDeviceTask(this, command);
         } catch (RuntimeException denied) {
+            handedOffToRuntime = false;
             Toast.makeText(this,
                     "Android refused the background device-task runtime. No UI action was executed.",
                     Toast.LENGTH_LONG).show();
@@ -279,17 +299,36 @@ public final class AssistantEntryActivity extends Activity {
     private void startRecognition() {
         if (recognitionLaunched || isFinishing()) return;
         recognitionLaunched = true;
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "No Android speech-recognition provider is available.", Toast.LENGTH_LONG).show();
+        try {
+            voiceSelection = AmikiVoiceEngine.resolve(this);
+        } catch (RuntimeException providerFailure) {
+            Toast.makeText(this,
+                    "Amiki could not resolve the selected speech provider. No command was executed.",
+                    Toast.LENGTH_LONG).show();
             finish();
             return;
         }
-
-        voiceSelection = AmikiVoiceEngine.resolve(this);
+        if (voiceSelection == null) {
+            Toast.makeText(this,
+                    "Amiki could not select a speech provider. No command was executed.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        if (voiceSelection.provider == AmikiVoiceEngine.Provider.OFFLINE) {
+            startOfflineRecognition();
+            return;
+        }
         if (!voiceSelection.isAvailable()) {
             Toast.makeText(this,
-                    "On-device recognition was requested but is unavailable. Change the voice provider in Amiki settings.",
+                    "The selected local speech recognizer is not installed. Download Amiki Offline English in Settings.",
                     Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        if (voiceSelection.provider == AmikiVoiceEngine.Provider.SYSTEM
+                && !SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(this, "No Android system speech-recognition provider is available.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
@@ -309,20 +348,31 @@ public final class AssistantEntryActivity extends Activity {
                 @Override public void onRmsChanged(float rmsdB) { }
                 @Override public void onBufferReceived(byte[] buffer) { }
                 @Override public void onEndOfSpeech() {
-                    updateListeningMessage("Processing your command…");
+                    updateListeningMessage("Collecting your thought…");
                 }
                 @Override public void onError(int error) {
+                    if (!transcriptAssembler.heldText().isEmpty()) {
+                        VoiceTranscriptAssembler.Update update = transcriptAssembler.flush();
+                        if (update.isComplete()) {
+                            completeTranscript(update.completedText);
+                            return;
+                        }
+                    }
                     handleRecognitionError(error);
                 }
                 @Override public void onResults(Bundle results) {
-                    dismissListeningDialog();
-                    destroyRecognizer(false);
                     ArrayList<String> matches = results == null ? null
                             : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    handleRecognizedCommand(matches == null || matches.isEmpty()
-                            ? null : matches.get(0));
+                    acceptTranscript(matches == null || matches.isEmpty() ? null : matches.get(0));
                 }
-                @Override public void onPartialResults(Bundle partialResults) { }
+                @Override public void onPartialResults(Bundle partialResults) {
+                    if (partialResults == null) return;
+                    ArrayList<String> partial = partialResults.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (partial != null && !partial.isEmpty()) {
+                        updateListeningMessage("Hearing: " + boundedVoiceText(partial.get(0)));
+                    }
+                }
                 @Override public void onEvent(int eventType, Bundle params) { }
             });
 
@@ -338,11 +388,201 @@ public final class AssistantEntryActivity extends Activity {
         }
     }
 
+    private void startOfflineRecognition() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            offlinePermissionPending = true;
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},
+                    REQUEST_OFFLINE_AUDIO);
+            return;
+        }
+        if (!AmikiOfflineSpeechModel.isInstalled(this)) {
+            Toast.makeText(this,
+                    "Amiki Offline English is not installed. Download it from Voice Provider Settings first.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        showListeningDialog(voiceSelection.description());
+        updateListeningMessage("Loading Amiki's local English model…");
+        new Thread(() -> {
+            final AmikiOfflineSpeechEngine created;
+            try {
+                created = AmikiOfflineSpeechEngine.create(
+                        AmikiOfflineSpeechModel.modelDirectory(this));
+            } catch (OutOfMemoryError memoryFailure) {
+                mainHandler.post(() -> {
+                    if (!isFinishing()) {
+                        Toast.makeText(this,
+                                "The offline speech model could not fit in available memory. Close other apps or select another provider.",
+                                Toast.LENGTH_LONG).show();
+                        finish();
+                    }
+                });
+                return;
+            } catch (Exception failure) {
+                mainHandler.post(() -> {
+                    if (!isFinishing()) {
+                        Toast.makeText(this,
+                                "Amiki's offline speech engine could not be initialized. No command was executed.",
+                                Toast.LENGTH_LONG).show();
+                        finish();
+                    }
+                });
+                return;
+            }
+            mainHandler.post(() -> {
+                if (activityDestroyed || isFinishing()) {
+                    new Thread(created::close, "Amiki-Vosk-Cleanup").start();
+                    return;
+                }
+                offlineEngine = created;
+                try {
+                    updateListeningMessage("Listening locally. Speech is not sent to a network provider.");
+                    created.start(new AmikiOfflineSpeechEngine.Listener() {
+                        @Override public void onPartialResult(String text) {
+                            if (!activityDestroyed && !offlineRecognitionComplete && text != null && !text.isEmpty()) {
+                                updateListeningMessage("Hearing: " + boundedVoiceText(text));
+                            }
+                        }
+                        @Override public void onResult(String text) {
+                            if (!activityDestroyed && !offlineRecognitionComplete && text != null && !text.isEmpty()) {
+                                acceptTranscript(text);
+                            }
+                        }
+                        @Override public void onFinalResult(String text) {
+                            if (activityDestroyed || offlineRecognitionComplete) return;
+                            if (text != null && !text.trim().isEmpty()) acceptTranscript(text);
+                            mainHandler.postDelayed(() -> {
+                                if (activityDestroyed || offlineRecognitionComplete) return;
+                                VoiceTranscriptAssembler.Update update = transcriptAssembler.flush();
+                                if (update.isComplete()) completeTranscript(update.completedText);
+                                else handleRecognitionError(SpeechRecognizer.ERROR_SPEECH_TIMEOUT);
+                            }, 250L);
+                        }
+                        @Override public void onError(Exception error) {
+                            if (activityDestroyed || offlineRecognitionComplete) return;
+                            if (!transcriptAssembler.heldText().isEmpty()) {
+                                VoiceTranscriptAssembler.Update update = transcriptAssembler.flush();
+                                if (update.isComplete()) completeTranscript(update.completedText);
+                                else handleRecognitionError(SpeechRecognizer.ERROR_AUDIO);
+                            } else {
+                                handleRecognitionError(SpeechRecognizer.ERROR_AUDIO);
+                            }
+                        }
+                        @Override public void onTimeout() {
+                            if (activityDestroyed || offlineRecognitionComplete) return;
+                            VoiceTranscriptAssembler.Update update = transcriptAssembler.flush();
+                            if (update.isComplete()) completeTranscript(update.completedText);
+                            else handleRecognitionError(SpeechRecognizer.ERROR_SPEECH_TIMEOUT);
+                        }
+                    });
+                } catch (RuntimeException failure) {
+                    destroyOfflineRecognition();
+                    dismissListeningDialog();
+                    Toast.makeText(this,
+                            "The offline microphone could not start. No command was executed.",
+                            Toast.LENGTH_LONG).show();
+                    finish();
+                }
+            });
+        }, "Amiki-Vosk-Model-Loader").start();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_OFFLINE_AUDIO || !offlinePermissionPending) return;
+        offlinePermissionPending = false;
+        if (grantResults.length > 0
+                && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            startOfflineRecognition();
+        } else {
+            Toast.makeText(this, "Microphone permission was denied. Offline recognition remains disabled.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+        }
+    }
+
+    private void destroyOfflineRecognition() {
+        AmikiOfflineSpeechEngine engine = offlineEngine;
+        offlineEngine = null;
+        if (engine != null) {
+            new Thread(engine::close, "Amiki-Vosk-Cleanup").start();
+        }
+    }
+
+    /**
+     * Jarvis-style endpointing: a recognized fragment is not automatically a
+     * complete command. Pauses after conjunctions/prepositions are held while
+     * the recognizer is restarted to capture the rest of the thought.
+     */
+    private void acceptTranscript(String fragment) {
+        if (fragment == null || fragment.trim().isEmpty()) {
+            handleRecognitionError(SpeechRecognizer.ERROR_NO_MATCH);
+            return;
+        }
+        VoiceTranscriptAssembler.Update update = transcriptAssembler.feed(
+                fragment, false, SystemClock.elapsedRealtime());
+        if (update.isComplete()) {
+            completeTranscript(update.completedText);
+            return;
+        }
+
+        updateListeningMessage("Heard: " + boundedVoiceText(update.heldText)
+                + "\nContinue speaking…");
+        scheduleTranscriptFlush(update.waitMillis);
+        mainHandler.postDelayed(this::restartRecognitionSegment, 220L);
+    }
+
+    private void scheduleTranscriptFlush(long delayMillis) {
+        if (transcriptFlush != null) mainHandler.removeCallbacks(transcriptFlush);
+        transcriptFlush = () -> {
+            transcriptFlush = null;
+            VoiceTranscriptAssembler.Update update = transcriptAssembler.flush();
+            if (update.isComplete()) completeTranscript(update.completedText);
+        };
+        mainHandler.postDelayed(transcriptFlush, Math.max(1L, delayMillis));
+    }
+
+    private void restartRecognitionSegment() {
+        if (isFinishing() || activeRecognizer == null) return;
+        try {
+            activeRecognizer.startListening(AmikiVoiceEngine.createRecognitionRequest());
+        } catch (RuntimeException failure) {
+            if (!transcriptAssembler.heldText().isEmpty()) {
+                VoiceTranscriptAssembler.Update update = transcriptAssembler.flush();
+                if (update.isComplete()) completeTranscript(update.completedText);
+            } else {
+                handleRecognitionError(SpeechRecognizer.ERROR_CLIENT);
+            }
+        }
+    }
+
+    private void completeTranscript(String transcript) {
+        offlineRecognitionComplete = true;
+        destroyOfflineRecognition();
+        if (transcriptFlush != null) mainHandler.removeCallbacks(transcriptFlush);
+        transcriptFlush = null;
+        transcriptAssembler.cancel();
+        dismissListeningDialog();
+        destroyRecognizer(false);
+        handleRecognizedCommand(transcript);
+    }
+
+    private String boundedVoiceText(String value) {
+        if (value == null) return "";
+        String clean = value.trim();
+        return clean.length() <= 180 ? clean : clean.substring(0, 180) + "…";
+    }
+
     private void showListeningDialog(String providerDescription) {
         listeningDialog = new AlertDialog.Builder(this)
                 .setTitle("Amiki")
                 .setMessage("Listening for your command…\n" + providerDescription
-                        + "\nOffline recognition is requested where the provider supports it.")
+                        + (voiceSelection != null && voiceSelection.provider == AmikiVoiceEngine.Provider.OFFLINE
+                            ? "\nYour speech is transcribed locally on this phone."
+                            : "\nThe selected system provider may use its own network services."))
                 .setNegativeButton("Cancel", (dialog, which) -> {
                     destroyRecognizer(true);
                     finish();
@@ -430,10 +670,12 @@ public final class AssistantEntryActivity extends Activity {
             startDeviceTaskWithOwnerReview(command);
             return;
         }
-        TermuxBackendLauncher.start(this);
         try {
+            TermuxBackendLauncher.start(this);
+            handedOffToRuntime = true;
             AssistantCommandService.start(this, command);
         } catch (RuntimeException denied) {
+            handedOffToRuntime = false;
             Toast.makeText(this,
                     "Android refused the background assistant runtime. No device action was executed.",
                     Toast.LENGTH_LONG).show();
@@ -443,8 +685,17 @@ public final class AssistantEntryActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        activityDestroyed = true;
+        offlineRecognitionComplete = true;
+        destroyOfflineRecognition();
+        if (transcriptFlush != null) mainHandler.removeCallbacks(transcriptFlush);
+        transcriptFlush = null;
+        transcriptAssembler.cancel();
         dismissListeningDialog();
         destroyRecognizer(true);
+        if (!handedOffToRuntime && !AssistantCommandService.isBusy()) {
+            AmikiWakeWordService.resumeIfEnabled();
+        }
         super.onDestroy();
     }
 }

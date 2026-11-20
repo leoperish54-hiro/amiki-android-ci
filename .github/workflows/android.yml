@@ -2,7 +2,9 @@ name: Amiki Android CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feat/amiki-owned-hey-amiki-ci-validation
   pull_request:
   workflow_dispatch:
 
@@ -41,13 +43,13 @@ jobs:
       - name: Run unit tests
         run: gradle :app:testDebugUnitTest --no-daemon --max-workers=2
 
-      - name: Build debug APK
+      - name: Build unsigned CI debug APK
         run: gradle :app:assembleDebug --no-daemon --max-workers=2
 
-      - name: Upload debug APK
+      - name: Upload unsigned CI debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: amiki-debug-apk
+          name: amiki-unsigned-ci-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
