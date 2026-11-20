@@ -35,7 +35,6 @@ final class AmikiWakeWordEngine {
 
     private static final int SAMPLE_RATE = 16000;
     private static final int FRAME_SAMPLES = 1600; // 100 ms chunks
-    private static final String WAKE_PHRASE = "hey amiki";
 
     private final KeywordSpotter spotter;
     private final OnlineStream stream;
@@ -82,11 +81,11 @@ final class AmikiWakeWordEngine {
                 root + "bpe.model");
         FeatureConfig features = new FeatureConfig(SAMPLE_RATE, 80, 0.0f);
         KeywordSpotterConfig config = new KeywordSpotterConfig(
-                features, model, 4, "", 1.0f, 0.25f, 1);
+                features, model, 4, root + "keywords.txt", 1.0f, 0.25f, 1);
 
         KeywordSpotter spotter = new KeywordSpotter(null, config);
         try {
-            OnlineStream stream = spotter.createStream(WAKE_PHRASE);
+            OnlineStream stream = spotter.createStream();
             if (stream == null || stream.getPtr() == 0L) {
                 throw new IllegalStateException("The local wake phrase could not be initialized.");
             }
