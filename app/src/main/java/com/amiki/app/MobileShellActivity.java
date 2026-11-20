@@ -3923,9 +3923,29 @@ public class MobileShellActivity extends Activity {
                 .setMessage("Amiki will temporarily inspect the foreground app's accessible UI after you leave this screen. No taps or other actions will be performed. Press STOP in Amiki to end observation. The captured snapshot stays in memory only.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Arm observation", (dialog, which) -> {
-                    AccessibilityOperatorService.armObservation(
-                            new DeviceTaskController(UUID.randomUUID().toString()));
-                    Toast.makeText(this, "One-task UI observation armed. Open the target app, then return to Amiki and press STOP.", Toast.LENGTH_LONG).show();
+                    if (!AccessibilityOperatorService.isOperatorConnected()) {
+                        Toast.makeText(this,
+                                "Android has enabled Amiki UI Operator, but the service is not connected yet. Wait a moment and try again. No observation was armed.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    try {
+                        AccessibilityOperatorService.armObservation(
+                                new DeviceTaskController(UUID.randomUUID().toString()));
+                        Toast.makeText(this,
+                                "One-task UI observation armed. Open the target app, then return to Amiki and press STOP.",
+                                Toast.LENGTH_LONG).show();
+                    } catch (IllegalStateException unavailable) {
+                        String reason = unavailable.getMessage();
+                        Toast.makeText(this,
+                                (reason == null ? "Amiki UI Operator is not ready." : reason)
+                                        + " No observation was armed.",
+                                Toast.LENGTH_LONG).show();
+                    } catch (RuntimeException failure) {
+                        Toast.makeText(this,
+                                "Amiki could not arm UI observation safely. No observation was armed.",
+                                Toast.LENGTH_LONG).show();
+                    }
                 })
                 .show();
     }
