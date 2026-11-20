@@ -1,6 +1,6 @@
 package com.amiki.app;
 
-import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;\nimport static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -16,6 +16,13 @@ public final class AmikiWakeWordDownloadPolicyTest {
         assertFalse(AmikiWakeWordDownloadPolicy.isContentLengthMismatch(4000908L, 4000908L));
         assertFalse(AmikiWakeWordDownloadPolicy.isContentLengthMismatch(-1L, 4000908L));
         // The transfer still has to pass the exact streamed size and SHA-256 checks.
+    }
+
+    @Test
+    public void boundsFinalReadToRemainingPinnedBytes() {
+        assertEquals(16384, AmikiWakeWordDownloadPolicy.boundedReadLength(16384, 4000908L, 0L));
+        assertEquals(2890, AmikiWakeWordDownloadPolicy.boundedReadLength(16384, 4000908L, 3998018L));
+        assertEquals(0, AmikiWakeWordDownloadPolicy.boundedReadLength(16384, 4000908L, 4000908L));
     }
 
     @Test
