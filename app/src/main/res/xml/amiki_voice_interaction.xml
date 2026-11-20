@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.amiki.app.AmikiVoiceInteractionSessionService"
+    android:recognitionService="com.amiki.app.AmikiRecognitionService"
+    android:settingsActivity="com.amiki.app.WakeWordSettingsActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="true" />
