@@ -201,7 +201,8 @@ public final class UiActionDispatcher {
         /** A non-text action is successful only when the requested label transition occurs. */
         public boolean matchesPostcondition(UiNodeSnapshot after, long nowUptimeMillis) {
             if (after == null || expectedUiText == null
-                    || !originalSnapshot.treeComplete || !after.treeComplete) return false;
+                    || !originalSnapshot.treeComplete || !after.treeComplete
+                    || !packageName.equals(after.packageName)) return false;
             long age = nowUptimeMillis - after.capturedAtUptimeMillis;
             if (age < 0 || age > UiTargetResolver.MAX_SNAPSHOT_AGE_MS) return false;
             boolean beforeVisible = containsExactVisibleLabel(originalSnapshot, expectedUiText);
