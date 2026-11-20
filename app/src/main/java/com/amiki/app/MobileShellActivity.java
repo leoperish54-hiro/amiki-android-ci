@@ -5208,7 +5208,11 @@ public class MobileShellActivity extends Activity {
             JSONObject request,
             Map<String, String> additionalHeaders
     ) throws Exception {
-        HttpURLConnection c = ApiConnection.open(this, endpoint);
+        String elevatedAgentToken = DIRECT_AGENT.equals(endpoint)
+                ? UosaAgentAuthorization.obtainTokenBlocking(this, request) : null;
+        HttpURLConnection c = elevatedAgentToken == null
+                ? ApiConnection.open(this, endpoint)
+                : ApiConnection.openWithBearer(endpoint, elevatedAgentToken);
         try {
             c.setRequestMethod("POST");
             c.setConnectTimeout(10000);

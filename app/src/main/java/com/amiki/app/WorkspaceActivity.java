@@ -2286,7 +2286,8 @@ public class WorkspaceActivity extends Activity {
                 context.put("goal", "Use only accessible, verified tools. State repository access limits honestly. Never claim edits, tests, or builds occurred without actual evidence.");
                 request.put("context", context);
 
-                connection = ApiConnection.open(this, DIRECT_AGENT);
+                String elevatedToken = UosaAgentAuthorization.obtainTokenBlocking(this, request);
+                connection = ApiConnection.openWithBearer(DIRECT_AGENT, elevatedToken);
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(45000);

@@ -1,12 +1,41 @@
 package com.amiki.app;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.junit.Test;
 
 public class ApiEndpointsTest {
     private static final String GOAL_ID = "a31e7f0d-4a15-4e66-8f25-9e9d9db2a004";
+
+    @Test
+    public void uosaGeneralGrantEndpointsExposePersistentGrantLifecycle() {
+        assertEquals(ApiEndpoints.API_V1 + "/security/general-grants/challenges",
+                ApiEndpoints.UOSA_GENERAL_GRANT_CHALLENGES);
+        assertEquals(ApiEndpoints.API_V1 + "/security/general-grants",
+                ApiEndpoints.UOSA_GENERAL_GRANTS);
+        assertEquals(ApiEndpoints.UOSA_GENERAL_GRANTS + "/current",
+                ApiEndpoints.UOSA_GENERAL_GRANT_CURRENT);
+    }
+
+    @Test
+    public void coreApiPathsSelectTheCorrectSessionClass() {
+        assertTrue(ApiConnection.isPrivilegedApiPath("/api/v1/cipher/inspect"));
+        assertTrue(ApiConnection.isPrivilegedApiPath("/api/v1/learning/review-queue"));
+        assertTrue(ApiConnection.isPrivilegedApiPath("/api/v1/cloud/jobs"));
+        assertFalse(ApiConnection.isPrivilegedApiPath("/api/v1/chat"));
+        assertFalse(ApiConnection.isPrivilegedApiPath("/api/v1/agents/run"));
+        assertFalse(ApiConnection.isPrivilegedApiPath("/api/v1/academic"));
+        assertFalse(ApiConnection.isPrivilegedApiPath("/api/v1/device/state"));
+    }
+
+    @Test
+    public void uosaRecoveryEndpointsUseOwnerSecurityRoutes() {
+        assertEquals(ApiEndpoints.API_V1 + "/security/recovery/challenges", ApiEndpoints.UOSA_RECOVERY_CHALLENGES);
+        assertEquals(ApiEndpoints.API_V1 + "/security/recovery/complete", ApiEndpoints.UOSA_RECOVERY_COMPLETE);
+    }
 
     @Test
     public void cloudGoalPlannerUsesCorePlanningEndpoint() {
