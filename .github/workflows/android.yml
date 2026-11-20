@@ -1,28 +1,26 @@
-name: Amiki Android CI
+name: Build Amiki Android
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: android-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  test-and-build:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    permissions:
+      contents: read
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -33,21 +31,194 @@ jobs:
           packages: 'platforms;android-36 build-tools;36.0.0'
           accept-android-sdk-licenses: true
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle 9.7.1
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.7.1'
 
+      - name: Configure persistent APK signing (optional until repository secrets are set)
+        env:
+          AMIKI_KEYSTORE_BASE64: ${{ secrets.AMIKI_KEYSTORE_BASE64 }}
+          AMIKI_KEYSTORE_PASSWORD: ${{ secrets.AMIKI_KEYSTORE_PASSWORD }}
+          AMIKI_KEY_ALIAS: ${{ secrets.AMIKI_KEY_ALIAS }}
+          AMIKI_KEY_PASSWORD: ${{ secrets.AMIKI_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$AMIKI_KEYSTORE_BASE64" ] || [ -z "$AMIKI_KEYSTORE_PASSWORD" ] || [ -z "$AMIKI_KEY_ALIAS" ] || [ -z "$AMIKI_KEY_PASSWORD" ]; then
+            echo "::warning::Persistent signing is not configured; this APK will use the runner's temporary Android debug key and cannot be relied on for in-place updates."
+            exit 0
+          fi
+          key_path="$RUNNER_TEMP/amiki-ci-signing.jks"
+          printf '%s' "$AMIKI_KEYSTORE_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          {
+            echo "AMIKI_KEYSTORE_PATH=$key_path"
+            echo "AMIKI_KEYSTORE_PASSWORD=$AMIKI_KEYSTORE_PASSWORD"
+            echo "AMIKI_KEY_ALIAS=$AMIKI_KEY_ALIAS"
+            echo "AMIKI_KEY_PASSWORD=$AMIKI_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
       - name: Run unit tests
+        env:
+          ORG_GRADLE_PROJECT_amikiVersionCode: ${{ github.run_number }}
         run: gradle :app:testDebugUnitTest --no-daemon --max-workers=2
 
-      - name: Build debug APK
+      - name: Build Debug APK on pull requests
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        env:
+          ORG_GRADLE_PROJECT_amikiVersionCode: ${{ github.run_number }}
         run: gradle :app:assembleDebug --no-daemon --max-workers=2
 
-      - name: Upload debug APK
+      - name: Verify pull-request APK signing certificate fingerprint
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        env:
+          AMIKI_EXPECTED_CERT_SHA256: E20095894E7751D1D766C63D66461C7D2DCCDDA9B34BDE8AB5A60037382A5730
+        run: |
+          set -euo pipefail
+          : "${AMIKI_KEYSTORE_PATH:?Persistent Amiki signing keystore was not configured}"
+          test -s "$AMIKI_KEYSTORE_PATH"
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose "$apk"
+          actual="$( "$apksigner" verify --print-certs "$apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ { print toupper($2); exit }' | tr -d ':' )"
+          if [ -z "$actual" ]; then
+            echo "::error::Could not read the APK signer certificate SHA-256 digest."
+            exit 1
+          fi
+          echo "APK signer certificate SHA-256: $actual"
+          if [ "$actual" != "$AMIKI_EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK signing certificate does not match the Amiki CI keystore fingerprint."
+            exit 1
+          fi
+          echo "APK signing certificate matches the expected Amiki CI keystore."
+
+      - name: Upload Workspace V2 debug APK for device verification
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: amiki-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: amiki-workspace-v2-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
+
+  publish-private-apk:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prune stale Actions artifacts to reduce storage usage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | [.id, .created_at, .name] | @tsv' \
+            | sort -r -k2,2 \
+            | awk -F '\\t' '$3 == "amiki-debug-apk" { if (apk_count < 3) { apk_count++; next } } { print $1 }' \
+            | xargs -r -P 8 -I ARTIFACT_ID sh -c '
+                echo "Deleting stale artifact $1"
+                gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$1" ||
+                  echo "Warning: artifact $1 could not be deleted."
+              ' _ ARTIFACT_ID
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0'
+          accept-android-sdk-licenses: true
+
+      - name: Set up Gradle 9.7.1
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.7.1'
+
+      - name: Configure persistent APK signing (optional until repository secrets are set)
+        env:
+          AMIKI_KEYSTORE_BASE64: ${{ secrets.AMIKI_KEYSTORE_BASE64 }}
+          AMIKI_KEYSTORE_PASSWORD: ${{ secrets.AMIKI_KEYSTORE_PASSWORD }}
+          AMIKI_KEY_ALIAS: ${{ secrets.AMIKI_KEY_ALIAS }}
+          AMIKI_KEY_PASSWORD: ${{ secrets.AMIKI_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$AMIKI_KEYSTORE_BASE64" ] || [ -z "$AMIKI_KEYSTORE_PASSWORD" ] || [ -z "$AMIKI_KEY_ALIAS" ] || [ -z "$AMIKI_KEY_PASSWORD" ]; then
+            echo "::warning::Persistent signing is not configured; this APK will use the runner's temporary Android debug key and cannot be relied on for in-place updates."
+            exit 0
+          fi
+          key_path="$RUNNER_TEMP/amiki-ci-signing.jks"
+          printf '%s' "$AMIKI_KEYSTORE_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          {
+            echo "AMIKI_KEYSTORE_PATH=$key_path"
+            echo "AMIKI_KEYSTORE_PASSWORD=$AMIKI_KEYSTORE_PASSWORD"
+            echo "AMIKI_KEY_ALIAS=$AMIKI_KEY_ALIAS"
+            echo "AMIKI_KEY_PASSWORD=$AMIKI_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Build Debug APK
+        env:
+          ORG_GRADLE_PROJECT_amikiVersionCode: ${{ github.run_number }}
+        run: gradle :app:assembleDebug --no-daemon --max-workers=2
+
+      - name: Verify APK signing certificate fingerprint
+        env:
+          AMIKI_EXPECTED_CERT_SHA256: E20095894E7751D1D766C63D66461C7D2DCCDDA9B34BDE8AB5A60037382A5730
+        run: |
+          set -euo pipefail
+          : "${AMIKI_KEYSTORE_PATH:?Persistent Amiki signing keystore was not configured}"
+          test -s "$AMIKI_KEYSTORE_PATH"
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose "$apk"
+          actual="$( "$apksigner" verify --print-certs "$apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ { print toupper($2); exit }' | tr -d ':' )"
+          if [ -z "$actual" ]; then
+            echo "::error::Could not read the APK signer certificate SHA-256 digest."
+            exit 1
+          fi
+          echo "APK signer certificate SHA-256: $actual"
+          if [ "$actual" != "$AMIKI_EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK signing certificate does not match the Amiki CI keystore fingerprint."
+            exit 1
+          fi
+          echo "APK signing certificate matches the expected Amiki CI keystore."
+
+      - name: Prune older private debug releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq '.[] | select(.tagName | startswith("amiki-debug-")) | [.createdAt, .tagName] | @tsv' \
+            | sort -r -k1,1 \
+            | tail -n +3 \
+            | cut -f2 \
+            | while read -r tag_name; do
+                [ -n "$tag_name" ] || continue
+                gh release delete "$tag_name" --yes || true
+                git push origin --delete "$tag_name" || true
+              done
+
+      - name: Publish private debug APK release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: amiki-debug-${{ github.run_number }}-${{ github.run_attempt }}
+          name: 'Amiki Debug APK #${{ github.run_number }}'
+          body: |
+            Private debug build for commit ${{ github.sha }}.
+            Unit tests and the Gradle build passed. This is a development APK, not a production release.
+          files: app/build/outputs/apk/debug/app-debug.apk
+          prerelease: true
+          make_latest: false
