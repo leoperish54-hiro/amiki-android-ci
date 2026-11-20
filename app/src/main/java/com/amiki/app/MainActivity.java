@@ -1658,7 +1658,7 @@ public class MainActivity extends Activity {
                 )
         );
 
-        TextView welcome = text("Welcome back.", 26, TEXT);
+        TextView welcome = text("Welcome back, Chimz.", 26, TEXT);
         welcome.setTypeface(null, 1);
         welcome.setGravity(Gravity.CENTER);
         welcomeState.addView(welcome);
@@ -2147,7 +2147,7 @@ public class MainActivity extends Activity {
         sidebar.setPadding(dp(10), dp(14), dp(10), dp(14));
         sidebar.setClipToPadding(false);
 
-        TextView identity = text("🌸 AMIKI\nDigital companion", 16, TEXT);
+        TextView identity = text("🌸 AMIKI\nChimz • Digital companion", 16, TEXT);
         identity.setPadding(dp(14), dp(14), dp(14), dp(20));
         identity.setLineSpacing(0f, 1.08f);
 
@@ -2655,19 +2655,19 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
-                URL url = new URL(DIRECT_AGENT_URL);
-                connection = ApiConnection.open(this, url);
-                connection.setRequestMethod("POST");
-                connection.setConnectTimeout(10000);
-                connection.setReadTimeout(30000);
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-
                 JSONObject request = new JSONObject();
                 request.put("agent", agent);
                 request.put("input", message);
                 request.put("session_id", "android-direct");
                 request.put("conversation_id", "android-" + agent);
+                String elevatedToken = UosaAgentAuthorization.obtainTokenBlocking(this, request);
+                URL url = new URL(DIRECT_AGENT_URL);
+                connection = ApiConnection.openWithBearer(url.toString(), elevatedToken);
+                connection.setRequestMethod("POST");
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(30000);
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
 
                 byte[] body = request.toString().getBytes(StandardCharsets.UTF_8);
                 try (OutputStream output = connection.getOutputStream()) {

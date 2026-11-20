@@ -92,7 +92,7 @@ public final class UiActionApprovalActivity extends FragmentActivity {
         setStatus("Preparing a one-use UOSA biometric challenge…");
         new Thread(() -> {
             try {
-                String ownerToken = OwnerSessionVault.readToken(this);
+                String ownerToken = OwnerSessionProvider.getGeneralToken(this);
                 if (ownerToken == null || ownerToken.length() < 32) {
                     throw new IllegalStateException("A current Core owner session is required.");
                 }
@@ -116,7 +116,9 @@ public final class UiActionApprovalActivity extends FragmentActivity {
         try {
             KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
             keyStore.load(null);
-            PrivateKey privateKey = (PrivateKey) keyStore.getKey(OwnerSecurityActivity.KEY_ALIAS, null);
+            String activeAlias = getSharedPreferences("amiki_uosa_device", MODE_PRIVATE)
+                    .getString("owner_key_alias", OwnerSecurityActivity.KEY_ALIAS);
+            PrivateKey privateKey = (PrivateKey) keyStore.getKey(activeAlias, null);
             if (privateKey == null) throw new IllegalStateException("The enrolled owner signing key is unavailable.");
             Signature signer = Signature.getInstance("SHA256withECDSA");
             signer.initSign(privateKey);

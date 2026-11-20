@@ -24,7 +24,7 @@ final class UiActionNetworkClient {
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
-                String token = OwnerSessionVault.readToken(context);
+                String token = OwnerSessionProvider.getGeneralToken(context);
                 if (token == null || token.length() < 32) {
                     throw new IllegalStateException("The Core owner session is unavailable.");
                 }
