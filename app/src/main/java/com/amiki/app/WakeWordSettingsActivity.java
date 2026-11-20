@@ -130,7 +130,7 @@ public final class WakeWordSettingsActivity extends Activity {
                     if (detail == null || detail.trim().isEmpty()) {
                         detail = failure.getClass().getSimpleName();
                     }
-                    status.setText("Model installation failed.\\n" + detail);
+                    status.setText("Model installation failed.\n" + detail);
                 });
             }
         });
