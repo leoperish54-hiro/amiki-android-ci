@@ -18,6 +18,15 @@ import javax.net.ssl.SSLException;
 final class AmikiWakeWordDownloadPolicy {
     private AmikiWakeWordDownloadPolicy() { }
 
+    /**
+     * Content-Length can be inaccurate on CDN/proxy responses. A mismatch is
+     * diagnostic only; callers must stream under the pinned size limit and
+     * accept the asset only after exact byte-count and SHA-256 verification.
+     */
+    static boolean isContentLengthMismatch(long declaredBytes, long pinnedBytes) {
+        return declaredBytes > 0L && declaredBytes != pinnedBytes;
+    }
+
     static boolean isRetryableHttpStatus(int status) {
         return status == 408 || status == 429 || (status >= 500 && status <= 599);
     }
