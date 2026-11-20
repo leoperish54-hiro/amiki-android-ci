@@ -126,7 +126,11 @@ public final class WakeWordSettingsActivity extends Activity {
                     progress.setVisibility(View.GONE);
                     installButton.setEnabled(true);
                     enableButton.setEnabled(true);
-                    status.setText("Model installation failed. Check your connection and available storage, then retry.");
+                    String detail = failure.getMessage();
+                    if (detail == null || detail.trim().isEmpty()) {
+                        detail = failure.getClass().getSimpleName();
+                    }
+                    status.setText("Model installation failed.\\n" + detail);
                 });
             }
         });
