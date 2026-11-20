@@ -25,6 +25,10 @@ import java.util.Locale;
  */
 final class AmikiWakeWordModel {
     private static final String MODEL_DIRECTORY = "amiki-hey-amiki-kws";
+    private static final String KEYWORDS_FILE = "keywords.txt";
+    private static final long KEYWORDS_SIZE = 32L;
+    private static final String KEYWORDS_SHA256 =
+            "b18718cab74c7e3882cbae7dca87b35e4c09fef99ad1e6c7aa91677ee15b60e6";
     private static final String MODEL_BASE_URL =
             "https://huggingface.co/mobilebytesensei/"
             + "sherpa-onnx-kws-zipformer-gigaspeech-3.3M/resolve/main/";
@@ -77,7 +81,13 @@ final class AmikiWakeWordModel {
                 return false;
             }
         }
-        return true;
+        File keywords = new File(directory, KEYWORDS_FILE);
+        try {
+            return keywords.isFile() && keywords.length() == KEYWORDS_SIZE
+                    && KEYWORDS_SHA256.equals(sha256(keywords));
+        } catch (IOException failure) {
+            return false;
+        }
     }
 
     static void install(Context context, ProgressListener listener) throws IOException {
@@ -107,6 +117,9 @@ final class AmikiWakeWordModel {
                                 + " of " + ASSETS.length + ")…");
                 downloadAndVerify(asset, destination, index, listener);
             }
+
+            report(listener, 98, "Installing the verified Hey Amiki keyword phrase…");
+            copyVerifiedKeywordAsset(context, staging);
 
             boolean hadPrevious = installed.exists();
             if (hadPrevious && !installed.renameTo(backup)) {
@@ -181,6 +194,40 @@ final class AmikiWakeWordModel {
         } finally {
             if (connection != null) connection.disconnect();
             if (temporary.exists()) temporary.delete();
+        }
+    }
+
+    private static void copyVerifiedKeywordAsset(Context context, File directory)
+            throws IOException {
+        File destination = new File(directory, KEYWORDS_FILE);
+        File temporary = new File(directory, KEYWORDS_FILE + ".part");
+        MessageDigest digest = newSha256();
+        long copied = 0L;
+        try (InputStream input = context.getAssets().open(KEYWORDS_FILE);
+             BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(temporary))) {
+            byte[] buffer = new byte[4096];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                copied += count;
+                if (copied > KEYWORDS_SIZE) {
+                    throw new IOException("The bundled wake-word phrase exceeded its pinned size.");
+                }
+                digest.update(buffer, 0, count);
+                output.write(buffer, 0, count);
+            }
+        } catch (IOException failure) {
+            temporary.delete();
+            throw failure;
+        }
+
+        String actual = hex(digest.digest());
+        if (copied != KEYWORDS_SIZE || !KEYWORDS_SHA256.equals(actual)) {
+            temporary.delete();
+            throw new IOException("The bundled Hey Amiki keyword phrase failed integrity verification.");
+        }
+        if (!temporary.renameTo(destination)) {
+            temporary.delete();
+            throw new IOException("Could not install the verified Hey Amiki keyword phrase.");
         }
     }
 
