@@ -311,8 +311,9 @@ public final class AssistantEntryActivity extends Activity {
             finish();
             return;
         }
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "No Android speech-recognition provider is available.", Toast.LENGTH_LONG).show();
+        if (voiceSelection.provider == AmikiVoiceEngine.Provider.SYSTEM
+                && !SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(this, "No Android system speech-recognition provider is available.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
@@ -564,7 +565,9 @@ public final class AssistantEntryActivity extends Activity {
         listeningDialog = new AlertDialog.Builder(this)
                 .setTitle("Amiki")
                 .setMessage("Listening for your command…\n" + providerDescription
-                        + "\nOffline recognition is requested where the provider supports it.")
+                        + (voiceSelection != null && voiceSelection.provider == AmikiVoiceEngine.Provider.OFFLINE
+                            ? "\nYour speech is transcribed locally on this phone."
+                            : "\nThe selected system provider may use its own network services."))
                 .setNegativeButton("Cancel", (dialog, which) -> {
                     destroyRecognizer(true);
                     finish();
