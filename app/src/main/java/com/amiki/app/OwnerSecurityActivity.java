@@ -57,6 +57,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             "ale.review.read",
             "ale.review.approve",
             "ale.review.reject",
+            "ale.knowledge.submit",
             "ale.progress.read",
             "ale.progress.write",
             "ale.projects.read",

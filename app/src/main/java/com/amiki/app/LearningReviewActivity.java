@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.InputFilter;
 import android.text.InputType;
 import android.text.method.LinkMovementMethod;
 import android.text.util.Linkify;
@@ -59,6 +60,11 @@ public class LearningReviewActivity extends FragmentActivity {
     private LinearLayout rootContent;
     private LinearLayout queueContent;
     private TextView statusView;
+    private EditText noteTopicInput;
+    private EditText noteContentInput;
+    private TextView intakeStatusView;
+    private Button submitNoteButton;
+    private Button runConsolidationButton;
     private String selectedKind = "all";
     private boolean requestInFlight;
 
@@ -127,6 +133,51 @@ public class LearningReviewActivity extends FragmentActivity {
         setupNote.setPadding(dp(2), dp(2), dp(2), dp(12));
         rootContent.addView(setupNote, params(-1, -2));
 
+        LinearLayout intakeCard = card();
+        intakeCard.addView(text("CAPTURE OWNER KNOWLEDGE", 11, CYAN), params(-1, -2));
+        TextView intakeHelp = text(
+                "Save a complete note directly to ALE. Amiki keeps the original content as an experience; it is not approved knowledge.",
+                12, MUTED);
+        intakeHelp.setPadding(0, dp(5), 0, dp(8));
+        intakeCard.addView(intakeHelp, params(-1, -2));
+
+        noteTopicInput = learningInput("Topic or subject (max 200 characters)", 200, false);
+        LinearLayout.LayoutParams topicParams = params(-1, dp(50));
+        topicParams.topMargin = dp(4);
+        intakeCard.addView(noteTopicInput, topicParams);
+
+        noteContentInput = learningInput("Write the full note or explanation (max 16,000 characters)", 16000, true);
+        noteContentInput.setMinLines(5);
+        noteContentInput.setMaxLines(12);
+        noteContentInput.setGravity(Gravity.TOP | Gravity.START);
+        LinearLayout.LayoutParams contentParams = params(-1, dp(150));
+        contentParams.topMargin = dp(9);
+        intakeCard.addView(noteContentInput, contentParams);
+
+        submitNoteButton = actionButton("SAVE OWNER NOTE", PURPLE);
+        submitNoteButton.setOnClickListener(v -> submitLearningNote());
+        LinearLayout.LayoutParams submitParams = params(-1, dp(46));
+        submitParams.topMargin = dp(10);
+        intakeCard.addView(submitNoteButton, submitParams);
+        intakeStatusView = text(
+                "Saved notes wait for an explicit consolidation run before entering the review queue.",
+                11, MUTED);
+        intakeStatusView.setPadding(0, dp(8), 0, 0);
+        intakeCard.addView(intakeStatusView, params(-1, -2));
+        addCard(rootContent, intakeCard);
+
+        LinearLayout consolidationCard = card();
+        consolidationCard.addView(text("BOUNDED CONSOLIDATION", 11, CYAN), params(-1, -2));
+        TextView consolidationHelp = text(
+                "Each run processes at most 10 owner notes and creates pending knowledge candidates. It never approves candidates or updates model weights.",
+                12, MUTED);
+        consolidationHelp.setPadding(0, dp(5), 0, dp(9));
+        consolidationCard.addView(consolidationHelp, params(-1, -2));
+        runConsolidationButton = actionButton("RUN CONSOLIDATION (MAX 10)", CARD);
+        runConsolidationButton.setOnClickListener(v -> confirmConsolidationRun());
+        consolidationCard.addView(runConsolidationButton, params(-1, dp(46)));
+        addCard(rootContent, consolidationCard);
+
         LinearLayout filters = new LinearLayout(this);
         filters.setOrientation(LinearLayout.HORIZONTAL);
         addFilter(filters, "ALL", "all");
@@ -185,6 +236,242 @@ public class LearningReviewActivity extends FragmentActivity {
         statusView.setText(active
                 ? "An encrypted UOSA L1 session is available on this device."
                 : "No active UOSA session. Enroll this device and create a fresh L1 session in Owner Security.");
+    }
+
+    private EditText learningInput(String hint, int maxLength, boolean multiline) {
+        EditText input = new EditText(this);
+        input.setTextColor(TEXT);
+        input.setHintTextColor(MUTED);
+        input.setTextSize(14);
+        input.setHint(hint);
+        input.setPadding(dp(12), dp(10), dp(12), dp(10));
+        input.setBackground(roundRect(PANEL, 10));
+        input.setFilters(new InputFilter[] { new InputFilter.LengthFilter(maxLength) });
+        if (multiline) {
+            input.setSingleLine(false);
+            input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        } else {
+            input.setSingleLine(true);
+            input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        }
+        return input;
+    }
+
+    private boolean requirePrivilegedLearningSession() {
+        try {
+            String token = OwnerSessionVault.readPrivilegedToken(this);
+            if (token != null && !token.trim().isEmpty()) return true;
+        } catch (Exception failure) {
+            OwnerSessionVault.clearPrivileged(this);
+        }
+        updateTokenStatus();
+        intakeStatusView.setText(
+                "No usable UOSA privileged session. Open Owner Security and create a fresh 15-minute session.");
+        return false;
+    }
+
+    private void setLearningActionsBusy(boolean busy) {
+        if (submitNoteButton != null) submitNoteButton.setEnabled(!busy);
+        if (runConsolidationButton != null) runConsolidationButton.setEnabled(!busy);
+    }
+
+    private void submitLearningNote() {
+        final String topic = noteTopicInput.getText().toString();
+        final String content = noteContentInput.getText().toString();
+        if (topic.trim().isEmpty()) {
+            noteTopicInput.setError("Enter a topic.");
+            return;
+        }
+        if (content.trim().isEmpty()) {
+            noteContentInput.setError("Enter the note content.");
+            return;
+        }
+        if (topic.length() > 200 || content.length() > 16000) {
+            intakeStatusView.setText("The topic or note exceeds the backend limit.");
+            return;
+        }
+        if (requestInFlight || !requirePrivilegedLearningSession()) return;
+
+        final JSONObject payload = new JSONObject();
+        try {
+            payload.put("topic", topic);
+            payload.put("content", content);
+        } catch (Exception failure) {
+            intakeStatusView.setText("Could not prepare the learning note.");
+            return;
+        }
+
+        requestInFlight = true;
+        setLearningActionsBusy(true);
+        intakeStatusView.setText("Saving the complete note as an unapproved ALE experience…");
+        new Thread(() -> {
+            String experienceId = null;
+            int responseCode = 0;
+            String failureMessage = null;
+            try {
+                JSONObject response = postPrivilegedJson(ApiEndpoints.LEARNING_NOTES, payload);
+                String recordedExperienceId = response.optString("experience_id", "");
+                if (!"recorded".equals(response.optString("status"))
+                        || recordedExperienceId.trim().isEmpty()
+                        || response.optBoolean("auto_approved", true)) {
+                    throw new IllegalStateException(
+                            "Core did not confirm review-only note storage. Check the review queue before retrying.");
+                }
+                experienceId = recordedExperienceId;
+            } catch (LearningApiException failure) {
+                responseCode = failure.statusCode;
+                failureMessage = failure.detail;
+            } catch (Exception failure) {
+                failureMessage = safeMessage(failure);
+            }
+
+            final String savedId = experienceId;
+            final int code = responseCode;
+            final String detail = failureMessage;
+            runOnUiThread(() -> {
+                requestInFlight = false;
+                setLearningActionsBusy(false);
+                if (isFinishing()) return;
+                if (savedId != null) {
+                    noteTopicInput.setText("");
+                    noteContentInput.setText("");
+                    noteContentInput.clearFocus();
+                    intakeStatusView.setText(
+                            "Saved as experience " + savedId
+                                    + ". It remains unapproved until you run consolidation and review the candidate.");
+                } else {
+                    intakeStatusView.setText(learningRequestFailure(code, detail));
+                }
+            });
+        }, "amiki-ale-owner-note").start();
+    }
+
+    private void confirmConsolidationRun() {
+        new AlertDialog.Builder(this)
+                .setTitle("Run ALE consolidation?")
+                .setMessage(
+                        "Amiki will process at most 10 recorded owner notes. It will preserve each original note and create pending knowledge candidates. Nothing will be auto-approved; every candidate still requires your separate review and L2 biometric approval.")
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("RUN CYCLE", (dialog, which) -> runConsolidationCycle())
+                .show();
+    }
+
+    private void runConsolidationCycle() {
+        if (requestInFlight || !requirePrivilegedLearningSession()) return;
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("max_items", 10);
+        } catch (Exception failure) {
+            intakeStatusView.setText("Could not prepare the consolidation request.");
+            return;
+        }
+
+        requestInFlight = true;
+        setLearningActionsBusy(true);
+        intakeStatusView.setText("Running one bounded consolidation cycle…");
+        new Thread(() -> {
+            String summary = null;
+            int responseCode = 0;
+            String failureMessage = null;
+            try {
+                JSONObject response = postPrivilegedJson(
+                        ApiEndpoints.LEARNING_CONSOLIDATION_RUN, payload);
+                if (response.optBoolean("auto_approved", true)) {
+                    throw new IllegalStateException(
+                            "Core did not confirm that consolidation remained review-only.");
+                }
+                String cycleStatus = response.optString("status", "unknown");
+                summary = "Cycle " + cycleStatus
+                        + ": processed " + response.optInt("processed_count", 0)
+                        + ", created " + response.optInt("created_count", 0)
+                        + ", queued for review " + response.optInt("queued_count", 0)
+                        + ", remaining " + response.optInt("remaining_count", 0)
+                        + ". Auto-approved: no.";
+                if (response.optBoolean("has_more", false)) {
+                    summary += " More notes remain for a later run.";
+                }
+            } catch (LearningApiException failure) {
+                responseCode = failure.statusCode;
+                failureMessage = failure.detail;
+            } catch (Exception failure) {
+                failureMessage = safeMessage(failure);
+            }
+
+            final String cycleSummary = summary;
+            final int code = responseCode;
+            final String detail = failureMessage;
+            runOnUiThread(() -> {
+                requestInFlight = false;
+                setLearningActionsBusy(false);
+                if (isFinishing()) return;
+                if (cycleSummary != null) {
+                    intakeStatusView.setText(cycleSummary);
+                    refreshQueue();
+                } else {
+                    intakeStatusView.setText(learningRequestFailure(code, detail));
+                }
+            });
+        }, "amiki-ale-consolidation").start();
+    }
+
+    private JSONObject postPrivilegedJson(String endpoint, JSONObject payload) throws Exception {
+        HttpURLConnection connection = null;
+        try {
+            connection = ApiConnection.open(this, new URL(endpoint));
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(7000);
+            connection.setReadTimeout(15000);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            byte[] requestBytes = payload.toString().getBytes(StandardCharsets.UTF_8);
+            try (java.io.OutputStream output = connection.getOutputStream()) {
+                output.write(requestBytes);
+            }
+            int status = connection.getResponseCode();
+            InputStream stream = status >= 200 && status < 300
+                    ? connection.getInputStream() : connection.getErrorStream();
+            String responseBody = stream == null ? "" : readBody(stream);
+            if (status < 200 || status >= 300) {
+                throw new LearningApiException(status, safeApiDetail(responseBody));
+            }
+            return responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private String learningRequestFailure(int statusCode, String detail) {
+        if (statusCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
+            updateTokenStatus();
+            return "The UOSA privileged session is missing or expired. Open Owner Security and create a fresh session.";
+        }
+        if (statusCode == HttpURLConnection.HTTP_FORBIDDEN) {
+            return "This privileged session lacks ale.knowledge.submit. Open Owner Security and create a fresh session with the updated ALE scope.";
+        }
+        if (statusCode == HttpURLConnection.HTTP_CONFLICT) {
+            return "ALE could not store the note because its learning store is at capacity. " + safeDetailText(detail);
+        }
+        if (statusCode != 0) {
+            return "ALE request rejected (HTTP " + statusCode + "). " + safeDetailText(detail);
+        }
+        return "Could not complete the ALE request. Check that Core is running and the local privileged session is available."
+                + (detail == null || detail.isEmpty() ? "" : " " + safeDetailText(detail));
+    }
+
+    private String safeDetailText(String detail) {
+        return detail == null || detail.trim().isEmpty() ? "Refresh and retry." : detail;
+    }
+
+    private static final class LearningApiException extends Exception {
+        final int statusCode;
+        final String detail;
+
+        LearningApiException(int statusCode, String detail) {
+            super("Learning API returned HTTP " + statusCode + ".");
+            this.statusCode = statusCode;
+            this.detail = detail;
+        }
     }
 
     private void refreshQueue() {
