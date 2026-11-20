@@ -91,8 +91,11 @@ final class AmikiWakeWordEngine {
                 throw new IllegalStateException("The local wake phrase could not be initialized.");
             }
             return new AmikiWakeWordEngine(spotter, stream);
-        } catch (RuntimeException failure) {
-            spotter.release();
+        } catch (RuntimeException | LinkageError | OutOfMemoryError failure) {
+            try {
+                spotter.release();
+            } catch (RuntimeException ignored) {
+            }
             throw failure;
         }
     }
@@ -173,9 +176,12 @@ final class AmikiWakeWordEngine {
                     throw new IllegalStateException("Android microphone read failed (" + count + ").");
                 }
             }
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError | OutOfMemoryError failure) {
             if (running.compareAndSet(true, false)) {
-                listener.onEngineError(failure);
+                Exception reported = failure instanceof Exception
+                        ? (Exception) failure
+                        : new IllegalStateException("The local wake-word runtime stopped unexpectedly.", failure);
+                listener.onEngineError(reported);
             }
         } finally {
             running.set(false);
