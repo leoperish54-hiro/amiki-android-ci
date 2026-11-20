@@ -11,8 +11,13 @@ import com.k2fsa.sherpa.onnx.FeatureConfig;
 import com.k2fsa.sherpa.onnx.KeywordSpotter;
 import com.k2fsa.sherpa.onnx.KeywordSpotterConfig;
 import com.k2fsa.sherpa.onnx.OnlineModelConfig;
+import com.k2fsa.sherpa.onnx.OnlineNeMoCtcModelConfig;
+import com.k2fsa.sherpa.onnx.OnlineParaformerModelConfig;
 import com.k2fsa.sherpa.onnx.OnlineStream;
+import com.k2fsa.sherpa.onnx.OnlineToneCtcModelConfig;
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig;
+import com.k2fsa.sherpa.onnx.OnlineZipformer2CtcModelConfig;
+import com.k2fsa.sherpa.onnx.QnnConfig;
 
 import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -57,34 +62,29 @@ final class AmikiWakeWordEngine {
         }
 
         String root = directory.getAbsolutePath() + File.separator;
-        OnlineTransducerModelConfig transducer = OnlineTransducerModelConfig.builder()
-                .setEncoder(root + "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx")
-                .setDecoder(root + "decoder-epoch-12-avg-2-chunk-16-left-64.onnx")
-                .setJoiner(root + "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx")
-                .build();
-        OnlineModelConfig model = OnlineModelConfig.builder()
-                .setTransducer(transducer)
-                .setTokens(root + "tokens.txt")
-                .setNumThreads(1)
-                .setDebug(false)
-                .setProvider("cpu")
-                .setModelType("zipformer2")
-                .setModelingUnit("bpe")
-                .setBpeVocab(root + "bpe.model")
-                .build();
-        KeywordSpotterConfig config = KeywordSpotterConfig.builder()
-                .setFeatureConfig(FeatureConfig.builder()
-                        .setSampleRate(SAMPLE_RATE)
-                        .setFeatureDim(80)
-                        .build())
-                .setOnlineModelConfig(model)
-                .setMaxActivePaths(4)
-                .setKeywordsScore(1.0f)
-                .setKeywordsThreshold(0.25f)
-                .setNumTrailingBlanks(1)
-                .build();
+        OnlineTransducerModelConfig transducer = new OnlineTransducerModelConfig(
+                root + "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+                root + "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+                root + "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+                new QnnConfig("", "", ""));
+        OnlineModelConfig model = new OnlineModelConfig(
+                transducer,
+                new OnlineParaformerModelConfig("", ""),
+                new OnlineZipformer2CtcModelConfig(""),
+                new OnlineNeMoCtcModelConfig(""),
+                new OnlineToneCtcModelConfig(""),
+                root + "tokens.txt",
+                1,
+                false,
+                "cpu",
+                "zipformer2",
+                "bpe",
+                root + "bpe.model");
+        FeatureConfig features = new FeatureConfig(SAMPLE_RATE, 80, 0.0f);
+        KeywordSpotterConfig config = new KeywordSpotterConfig(
+                features, model, 4, "", 1.0f, 0.25f, 1);
 
-        KeywordSpotter spotter = new KeywordSpotter(config);
+        KeywordSpotter spotter = new KeywordSpotter(null, config);
         try {
             OnlineStream stream = spotter.createStream(WAKE_PHRASE);
             if (stream == null || stream.getPtr() == 0L) {
