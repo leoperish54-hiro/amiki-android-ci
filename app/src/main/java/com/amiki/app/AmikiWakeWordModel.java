@@ -25,6 +25,7 @@ import java.util.Locale;
  */
 final class AmikiWakeWordModel {
     private static final String MODEL_DIRECTORY = "amiki-hey-amiki-kws";
+    private static final int MAX_DOWNLOAD_ATTEMPTS = 3;
     private static final String KEYWORDS_FILE = "keywords.txt";
     private static final long KEYWORDS_SIZE = 32L;
     private static final String KEYWORDS_SHA256 =
@@ -145,27 +146,78 @@ final class AmikiWakeWordModel {
 
     private static void downloadAndVerify(
             Asset asset, File destination, int index, ProgressListener listener) throws IOException {
+        DownloadAttemptException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
+            try {
+                downloadAndVerifyOnce(asset, destination, index, listener);
+                return;
+            } catch (DownloadAttemptException failure) {
+                lastFailure = failure;
+                Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+                boolean retryable = AmikiWakeWordDownloadPolicy.isRetryableHttpStatus(failure.httpStatus)
+                        || AmikiWakeWordDownloadPolicy.isRetryableException(cause);
+                android.util.Log.w("AmikiWakeWord",
+                        "Model asset transfer failed: asset=" + asset.name
+                                + ", attempt=" + attempt + "/" + MAX_DOWNLOAD_ATTEMPTS
+                                + ", host=" + failure.host
+                                + ", http=" + failure.httpStatus
+                                + ", bytes=" + failure.receivedBytes + "/" + asset.size
+                                + ", cause=" + cause.getClass().getSimpleName(),
+                        cause);
+
+                if (!retryable || attempt == MAX_DOWNLOAD_ATTEMPTS) {
+                    throw new IOException(AmikiWakeWordDownloadPolicy.userMessage(
+                            asset.name, failure.receivedBytes, asset.size, failure.httpStatus,
+                            failure.host, cause, attempt), failure);
+                }
+
+                report(listener, index * 100 / ASSETS.length,
+                        "Download interrupted (" + failure.receivedBytes + " of " + asset.size
+                                + " bytes). Retrying (" + (attempt + 1) + " of "
+                                + MAX_DOWNLOAD_ATTEMPTS + ")…");
+                try {
+                    Thread.sleep(AmikiWakeWordDownloadPolicy.retryDelayMillis(attempt));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Wake-word model download was interrupted before retry.", interrupted);
+                }
+            }
+        }
+        throw new IOException("Wake-word model download failed.", lastFailure);
+    }
+
+    private static void downloadAndVerifyOnce(
+            Asset asset, File destination, int index, ProgressListener listener)
+            throws DownloadAttemptException {
         File temporary = new File(destination.getParentFile(), asset.name + ".part");
         HttpURLConnection connection = null;
+        long received = 0L;
+        int status = -1;
+        String host = "huggingface.co";
         try {
             connection = (HttpURLConnection) new URL(
                     MODEL_BASE_URL + asset.name + "?download=true").openConnection();
             connection.setInstanceFollowRedirects(true);
-            connection.setConnectTimeout(20000);
-            connection.setReadTimeout(45000);
+            connection.setConnectTimeout(25000);
+            connection.setReadTimeout(90000);
+            connection.setUseCaches(false);
             connection.setRequestProperty("User-Agent", "Amiki-Android/1.0");
             connection.setRequestProperty("Accept", "application/octet-stream");
-            int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) {
-                throw new IOException("The wake-word model host returned HTTP " + status + ".");
+            status = connection.getResponseCode();
+            if (connection.getURL() != null && connection.getURL().getHost() != null) {
+                host = connection.getURL().getHost();
+            }
+            // This is a fresh transfer, not a Range request. A 206 response is
+            // not accepted as a complete asset; final size/hash checks remain mandatory.
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw new IOException("Unexpected HTTP status " + status + ".");
             }
             long contentLength = connection.getContentLengthLong();
             if (contentLength > 0L && contentLength != asset.size) {
-                throw new IOException("The wake-word model file has an unexpected size.");
+                throw new IOException("The model host reported an unexpected content length.");
             }
 
             MessageDigest digest = newSha256();
-            long received = 0L;
             try (InputStream input = new BufferedInputStream(connection.getInputStream());
                  BufferedOutputStream output = new BufferedOutputStream(
                          new FileOutputStream(temporary))) {
@@ -174,7 +226,7 @@ final class AmikiWakeWordModel {
                 while ((count = input.read(buffer)) != -1) {
                     received += count;
                     if (received > asset.size) {
-                        throw new IOException("The wake-word model exceeded its pinned size.");
+                        throw new IOException("The model exceeded its pinned size.");
                     }
                     digest.update(buffer, 0, count);
                     output.write(buffer, 0, count);
@@ -184,16 +236,34 @@ final class AmikiWakeWordModel {
                 }
             }
 
+            if (received < asset.size) {
+                throw new java.io.EOFException("The model transfer ended before all bytes arrived.");
+            }
             String actual = hex(digest.digest());
-            if (received != asset.size || !asset.sha256.equals(actual)) {
-                throw new IOException("Integrity verification failed for " + asset.name + ".");
+            if (!asset.sha256.equals(actual)) {
+                throw new IOException("The downloaded model did not match its pinned SHA-256.");
             }
             if (!temporary.renameTo(destination)) {
                 throw new IOException("Could not store the verified model file " + asset.name + ".");
             }
+        } catch (IOException failure) {
+            throw new DownloadAttemptException(received, status, host, failure);
         } finally {
             if (connection != null) connection.disconnect();
             if (temporary.exists()) temporary.delete();
+        }
+    }
+
+    private static final class DownloadAttemptException extends IOException {
+        final long receivedBytes;
+        final int httpStatus;
+        final String host;
+
+        DownloadAttemptException(long receivedBytes, int httpStatus, String host, IOException cause) {
+            super("Wake-word model transfer attempt failed.", cause);
+            this.receivedBytes = receivedBytes;
+            this.httpStatus = httpStatus;
+            this.host = host;
         }
     }
 
