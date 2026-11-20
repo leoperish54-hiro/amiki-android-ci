@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/amiki-owned-hey-amiki-ci-validation
+      - fix/assistant-and-afdi-crash-guards-ci
   pull_request:
     branches:
       - fix/assistant-and-afdi-crash-guards-ci
