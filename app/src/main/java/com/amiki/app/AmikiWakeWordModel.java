@@ -232,7 +232,8 @@ final class AmikiWakeWordModel {
                     // Never write bytes beyond the independently pinned model size.
                     // Some CDN responses append transport data; only the exact
                     // expected prefix is eligible for SHA-256 verification.
-                    int requested = (int) Math.min((long) buffer.length, asset.size - received);
+                    int requested = AmikiWakeWordDownloadPolicy.boundedReadLength(
+                            buffer.length, asset.size, received);
                     count = input.read(buffer, 0, requested);
                     if (count == -1) break;
                     received += count;
