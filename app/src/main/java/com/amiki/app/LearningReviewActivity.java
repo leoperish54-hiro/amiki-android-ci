@@ -310,13 +310,14 @@ public class LearningReviewActivity extends FragmentActivity {
             String failureMessage = null;
             try {
                 JSONObject response = postPrivilegedJson(ApiEndpoints.LEARNING_NOTES, payload);
-                experienceId = response.optString("experience_id", "");
+                String recordedExperienceId = response.optString("experience_id", "");
                 if (!"recorded".equals(response.optString("status"))
-                        || experienceId.trim().isEmpty()
+                        || recordedExperienceId.trim().isEmpty()
                         || response.optBoolean("auto_approved", true)) {
                     throw new IllegalStateException(
                             "Core did not confirm review-only note storage. Check the review queue before retrying.");
                 }
+                experienceId = recordedExperienceId;
             } catch (LearningApiException failure) {
                 responseCode = failure.statusCode;
                 failureMessage = failure.detail;
