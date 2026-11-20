@@ -131,6 +131,12 @@ android {
             .get()
             .toInt()
         versionName = "1.0"
+
+        // The target Infinix HOT 9 is ARM-based. Exclude desktop and obsolete MIPS
+        // native runtimes so the debug APK does not carry unused 90+ MB libraries.
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
 
     buildTypes {
