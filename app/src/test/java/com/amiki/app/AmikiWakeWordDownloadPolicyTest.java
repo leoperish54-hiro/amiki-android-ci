@@ -10,6 +10,15 @@ import org.junit.Test;
 
 public final class AmikiWakeWordDownloadPolicyTest {
     @Test
+    public void treatsContentLengthMismatchAsDiagnosticNotProofOfCorruption() {
+        assertTrue(AmikiWakeWordDownloadPolicy.isContentLengthMismatch(4807159L, 4000908L));
+        assertTrue(AmikiWakeWordDownloadPolicy.isContentLengthMismatch(3999999L, 4000908L));
+        assertFalse(AmikiWakeWordDownloadPolicy.isContentLengthMismatch(4000908L, 4000908L));
+        assertFalse(AmikiWakeWordDownloadPolicy.isContentLengthMismatch(-1L, 4000908L));
+        // The transfer still has to pass the exact streamed size and SHA-256 checks.
+    }
+
+    @Test
     public void retriesOnlyTransientHttpStatuses() {
         assertTrue(AmikiWakeWordDownloadPolicy.isRetryableHttpStatus(408));
         assertTrue(AmikiWakeWordDownloadPolicy.isRetryableHttpStatus(429));

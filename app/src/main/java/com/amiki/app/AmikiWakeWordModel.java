@@ -213,8 +213,13 @@ final class AmikiWakeWordModel {
                 throw new IOException("Unexpected HTTP status " + status + ".");
             }
             long contentLength = connection.getContentLengthLong();
-            if (contentLength > 0L && contentLength != asset.size) {
-                throw new IOException("The model host reported an unexpected content length.");
+            if (AmikiWakeWordDownloadPolicy.isContentLengthMismatch(contentLength, asset.size)) {
+                // CDN/proxy metadata is advisory only. Do not reject before reading:
+                // the streamed byte count and pinned SHA-256 below are authoritative.
+                android.util.Log.w("AmikiWakeWord",
+                        "Model host Content-Length differs from pinned size: asset="
+                                + asset.name + ", declared=" + contentLength
+                                + ", pinned=" + asset.size + ", host=" + host);
             }
 
             MessageDigest digest = newSha256();
@@ -226,7 +231,7 @@ final class AmikiWakeWordModel {
                 while ((count = input.read(buffer)) != -1) {
                     received += count;
                     if (received > asset.size) {
-                        throw new IOException("The model exceeded its pinned size.");
+                        throw new IOException("Downloaded response exceeded the pinned model size; refusing the unverified payload.");
                     }
                     digest.update(buffer, 0, count);
                     output.write(buffer, 0, count);
