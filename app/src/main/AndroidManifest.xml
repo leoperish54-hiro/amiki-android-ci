@@ -32,6 +32,10 @@
             android:name=".OwnerSecurityActivity"
             android:exported="false" />
         <activity
+            android:name=".UiActionApprovalActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
+        <activity
             android:name=".InstalledAppsActivity"
             android:exported="false" />
         <activity
@@ -78,6 +82,14 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/amiki_accessibility_service" />
+        </service>
+        <service
+            android:name=".AssistantCommandService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Bounded, user-invoked voice assistant request handling and speech response; no ambient microphone monitoring." />
         </service>
         <service
             android:name=".SentinelService"

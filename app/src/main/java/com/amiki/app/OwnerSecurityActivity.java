@@ -46,7 +46,7 @@ import java.util.concurrent.Executor;
 
 public final class OwnerSecurityActivity extends FragmentActivity {
     private static final String KEYSTORE = "AndroidKeyStore";
-    private static final String KEY_ALIAS = "amiki.uosa.owner-signing.v1";
+    static final String KEY_ALIAS = "amiki.uosa.owner-signing.v1";
     private static final int AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG;
     // Explicit Android-client scope profile. L2 scopes remain transaction-bound
     // and require a fresh biometric signature for each protected operation.

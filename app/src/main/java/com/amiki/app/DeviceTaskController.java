@@ -1,13 +1,24 @@
 package com.amiki.app;
 
 /**
- * Deterministic lifecycle state machine for multi-step device operations.
- * It validates task transitions; it does not execute actions or grant access.
+ * Small, deterministic task-state machine for multi-step device operations.
+ *
+ * This class deliberately has no Android or model dependency. It validates
+ * lifecycle transitions; it does not execute actions or grant authorization.
+ * A future native operator owns execution and must consult this controller
+ * before each step.
  */
 public final class DeviceTaskController {
     public enum State {
-        QUEUED, OBSERVING, AWAITING_OWNER_APPROVAL, EXECUTING, VERIFYING,
-        COMPLETED, FAILED, CANCELLED, NEEDS_OWNER_INPUT
+        QUEUED,
+        OBSERVING,
+        AWAITING_OWNER_APPROVAL,
+        EXECUTING,
+        VERIFYING,
+        COMPLETED,
+        FAILED,
+        CANCELLED,
+        NEEDS_OWNER_INPUT
     }
 
     public static final class Snapshot {
@@ -74,6 +85,13 @@ public final class DeviceTaskController {
         return snapshot();
     }
 
+    public synchronized Snapshot ownerApprovalFailed(String reason) {
+        requireState(State.AWAITING_OWNER_APPROVAL);
+        transition(State.NEEDS_OWNER_INPUT,
+                safeDetail(reason, "Owner authorization could not be completed."));
+        return snapshot();
+    }
+
     public synchronized Snapshot beginExecution() {
         requireState(State.OBSERVING);
         if (stopRequested) return cancelNow();
@@ -93,6 +111,15 @@ public final class DeviceTaskController {
         requireState(State.EXECUTING, State.OBSERVING);
         if (stopRequested) return cancelNow();
         transition(State.VERIFYING, "Verifying the requested outcome.");
+        return snapshot();
+    }
+
+    public synchronized Snapshot verificationStepCompleted(String verifiedOutcome) {
+        requireState(State.VERIFYING);
+        if (stopRequested) return cancelNow();
+        completedSteps++;
+        transition(State.OBSERVING,
+                safeDetail(verifiedOutcome, "Action outcome verified; fresh observation required."));
         return snapshot();
     }
 
@@ -116,12 +143,15 @@ public final class DeviceTaskController {
         return snapshot();
     }
 
-    /** Prevents future steps; cannot roll back an external side effect already accepted. */
+    /**
+     * Requests immediate cancellation. The controller prevents future steps;
+     * it cannot roll back a side effect already accepted by another app.
+     */
     public synchronized Snapshot stop() {
         if (!isTerminal(state)) {
             stopRequested = true;
             transition(State.CANCELLED,
-                    "Stopped. An external side effect already accepted may not be reversible.");
+                    "Stopped. Any external side effect already accepted may not be reversible.");
         }
         return snapshot();
     }
@@ -133,16 +163,22 @@ public final class DeviceTaskController {
     }
 
     private void requireState(State... allowed) {
-        for (State candidate : allowed) if (state == candidate) return;
+        for (State candidate : allowed) {
+            if (state == candidate) return;
+        }
         throw new IllegalStateException("Invalid task transition from " + state + ".");
     }
 
     private void requireNonTerminal() {
-        if (isTerminal(state)) throw new IllegalStateException("A terminal task cannot transition again.");
+        if (isTerminal(state)) {
+            throw new IllegalStateException("A terminal task cannot transition again.");
+        }
     }
 
-    private static boolean isTerminal(State value) {
-        return value == State.COMPLETED || value == State.FAILED || value == State.CANCELLED;
+    private static boolean isTerminal(State candidate) {
+        return candidate == State.COMPLETED
+                || candidate == State.FAILED
+                || candidate == State.CANCELLED;
     }
 
     private void transition(State next, String nextDetail) {
@@ -151,6 +187,7 @@ public final class DeviceTaskController {
     }
 
     private static String safeDetail(String value, String fallback) {
-        return value == null || value.trim().isEmpty() ? fallback : value.trim();
+        if (value == null || value.trim().isEmpty()) return fallback;
+        return value.trim();
     }
 }

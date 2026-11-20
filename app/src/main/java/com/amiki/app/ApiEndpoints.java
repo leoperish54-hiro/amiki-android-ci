@@ -53,6 +53,9 @@ final class ApiEndpoints {
     static final String DEVICE_STATE = API_V1 + "/device/state";
     static final String DEVICE_EXECUTE = API_V1 + "/device/execute";
     static final String DEVICE_PLAN = API_V1 + "/device/plan";
+    static final String DEVICE_UI_ACTION_AUTHORIZE = API_V1 + "/device/ui-actions/authorize";
+    static final String DEVICE_UI_ACTION_RESULT = API_V1 + "/device/ui-actions/result";
+    static final String DEVICE_UI_TASK_NEXT = API_V1 + "/device/ui-tasks/next";
 
     static String cloudGoalAction(String goalId, String action) {
         if (!"pause".equals(action) && !"resume".equals(action) && !"cancel".equals(action)) {
