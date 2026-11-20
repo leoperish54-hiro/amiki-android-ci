@@ -286,26 +286,88 @@ public class MobileShellActivity extends Activity {
 
     private void showVoiceProviderSettings() {
         AmikiVoiceEngine.Mode current = AmikiVoiceEngine.getMode(this);
-        int selected = current == AmikiVoiceEngine.Mode.SYSTEM ? 1 : 0;
+        int selected = current == AmikiVoiceEngine.Mode.SYSTEM ? 2
+                : current == AmikiVoiceEngine.Mode.OFFLINE ? 1 : 0;
         AmikiVoiceEngine.Selection active = AmikiVoiceEngine.resolve(this);
-        String explanation = active.androidApi < 31
-                ? "Android 10 does not expose the platform's dedicated on-device SpeechRecognizer. Automatic currently uses the installed Android system provider. A bundled Amiki offline speech model is a later milestone."
-                : "Automatic prefers Android's dedicated on-device recognizer when the platform reports it available. The system option delegates to the installed Android speech-recognition service.";
+        String explanation = "Automatic prefers Android's on-device recognizer where available, then Amiki Offline English when installed, and only then the Android system provider. "
+                + "Amiki Offline English downloads a 41.2 MB model once, stores it in private app storage, and performs recognition locally. It may use about 300 MB RAM while loaded. "
+                + "The bundled English model is US English; recognition quality for Zambian English needs testing on your phone. "
+                + "\n\nCurrent provider: " + active.description();
         new AlertDialog.Builder(this)
                 .setTitle("Speech recognition provider")
                 .setMessage(explanation)
                 .setSingleChoiceItems(new String[] {
-                        "Automatic (prefer on-device when available)",
-                        "Android system provider"
+                        "Automatic (prefer local recognition)",
+                        "Amiki Offline English (download once; no network during recognition)",
+                        "Android system provider (external provider may use network)"
                 }, selected, (dialog, which) -> {
-                    AmikiVoiceEngine.setMode(this, which == 0
-                            ? AmikiVoiceEngine.Mode.AUTO
-                            : AmikiVoiceEngine.Mode.SYSTEM);
                     dialog.dismiss();
-                    showSettings();
+                    if (which == 0) {
+                        AmikiVoiceEngine.setMode(this, AmikiVoiceEngine.Mode.AUTO);
+                        showSettings();
+                    } else if (which == 2) {
+                        AmikiVoiceEngine.setMode(this, AmikiVoiceEngine.Mode.SYSTEM);
+                        showSettings();
+                    } else if (which == 1) {
+                        if (AmikiOfflineSpeechModel.isInstalled(this)) {
+                            AmikiVoiceEngine.setMode(this, AmikiVoiceEngine.Mode.OFFLINE);
+                            showSettings();
+                        } else {
+                            new AlertDialog.Builder(this)
+                                    .setTitle("Install Amiki Offline English?")
+                                    .setMessage("This is a one-time download of approximately 41.2 MB. After installation, voice commands are transcribed on this phone without sending microphone audio to an external speech provider. Allow enough free storage and memory.")
+                                    .setNegativeButton("Not now", null)
+                                    .setPositiveButton("Download and install", (confirm, choice) -> installOfflineSpeechModel())
+                                    .show();
+                        }
+                    }
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    private void installOfflineSpeechModel() {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setTitle("Installing Amiki Offline English");
+        progress.setMessage("Downloading the signed-by-hash model archive…");
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(100);
+        progress.setProgress(0);
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            try {
+                AmikiOfflineSpeechModel.download(this, percent -> runOnUiThread(() -> {
+                    if (progress.isShowing()) {
+                        progress.setProgress(percent);
+                        progress.setMessage(percent < 80
+                                ? "Downloading and verifying the model…"
+                                : "Safely extracting the verified model…");
+                    }
+                }));
+                runOnUiThread(() -> {
+                    if (progress.isShowing()) progress.dismiss();
+                    AmikiVoiceEngine.setMode(this, AmikiVoiceEngine.Mode.OFFLINE);
+                    new AlertDialog.Builder(this)
+                            .setTitle("Offline speech is ready")
+                            .setMessage("Amiki Offline English is installed. Recognition will run locally. Automatic mode will also prefer it on Android 10 when no platform on-device recognizer exists.")
+                            .setPositiveButton("Done", (done, which) -> showSettings())
+                            .show();
+                });
+            } catch (Exception failure) {
+                String detail = failure.getMessage() == null
+                        ? failure.getClass().getSimpleName() : failure.getMessage();
+                final String safeDetail = detail.length() > 180 ? detail.substring(0, 180) : detail;
+                runOnUiThread(() -> {
+                    if (progress.isShowing()) progress.dismiss();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Offline model installation failed")
+                            .setMessage(safeDetail + "\nNo speech model was installed or selected.")
+                            .setPositiveButton("OK", null)
+                            .show();
+                });
+            }
+        }, "Amiki-Offline-Model-Download").start();
     }
 
     private void dispatchAssistantRequest(Intent source) {

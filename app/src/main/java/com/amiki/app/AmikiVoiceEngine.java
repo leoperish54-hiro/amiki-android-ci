@@ -22,12 +22,14 @@ public final class AmikiVoiceEngine {
     public enum Mode {
         AUTO,
         ON_DEVICE,
-        SYSTEM
+        SYSTEM,
+        OFFLINE
     }
 
     public enum Provider {
         ON_DEVICE,
         SYSTEM,
+        OFFLINE,
         UNAVAILABLE
     }
 
@@ -52,6 +54,8 @@ public final class AmikiVoiceEngine {
                     return "Android on-device speech recognition";
                 case SYSTEM:
                     return "Android system speech provider";
+                case OFFLINE:
+                    return "Amiki offline English model (runs locally; no network during recognition)";
                 default:
                     return "Requested on-device recognizer unavailable";
             }
@@ -94,21 +98,31 @@ public final class AmikiVoiceEngine {
                 onDeviceAvailable = false;
             }
         }
+        boolean offlineAvailable = AmikiOfflineSpeechModel.isInstalled(context);
         return new Selection(mode,
-                selectProvider(mode, Build.VERSION.SDK_INT, onDeviceAvailable),
+                selectProvider(mode, Build.VERSION.SDK_INT, onDeviceAvailable, offlineAvailable),
                 Build.VERSION.SDK_INT);
     }
 
     /** Pure provider policy, exposed for deterministic unit tests. */
     static Provider selectProvider(Mode mode, int sdkInt, boolean onDeviceAvailable) {
+        return selectProvider(mode, sdkInt, onDeviceAvailable, false);
+    }
+
+    static Provider selectProvider(Mode mode, int sdkInt, boolean onDeviceAvailable,
+                                   boolean offlineModelAvailable) {
         Mode requested = mode == null ? Mode.AUTO : mode;
         if (requested == Mode.SYSTEM) return Provider.SYSTEM;
+        if (requested == Mode.OFFLINE) {
+            return offlineModelAvailable ? Provider.OFFLINE : Provider.UNAVAILABLE;
+        }
         if (requested == Mode.ON_DEVICE) {
             return sdkInt >= 31 && onDeviceAvailable
                     ? Provider.ON_DEVICE : Provider.UNAVAILABLE;
         }
-        return sdkInt >= 31 && onDeviceAvailable
-                ? Provider.ON_DEVICE : Provider.SYSTEM;
+        if (sdkInt >= 31 && onDeviceAvailable) return Provider.ON_DEVICE;
+        if (offlineModelAvailable) return Provider.OFFLINE;
+        return Provider.SYSTEM;
     }
 
     /** Must be called from the Android main thread, as required by SpeechRecognizer. */
