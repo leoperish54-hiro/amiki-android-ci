@@ -126,9 +126,9 @@ public final class UosaAgentApprovalActivity extends FragmentActivity {
                 body.put("transaction_hash", transactionHash);
                 JSONObject challenge = postJson(
                         ApiEndpoints.UOSA_ELEVATION_CHALLENGES, body, generalToken);
+                String challengeId = challenge.getString("challenge_id");
                 String message = challenge.getString("message");
-                runOnUiThread(() -> authenticateAndSign(
-                        challenge.getString("challenge_id"), message));
+                runOnUiThread(() -> authenticateAndSign(challengeId, message));
             } catch (Exception failure) {
                 runOnUiThread(() -> finishFailure(
                         "Could not request agent authorization: " + safeMessage(failure)));
