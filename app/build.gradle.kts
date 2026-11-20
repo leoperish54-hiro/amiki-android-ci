@@ -105,6 +105,8 @@ val downloadSherpaOnnxAar = tasks.register("downloadSherpaOnnxAar") {
     }
 }
 
+val sherpaAarDependency = files(sherpaAar).builtBy(downloadSherpaOnnxAar)
+
 android {
     namespace = "com.amiki.app"
     compileSdk = 36
@@ -143,13 +145,10 @@ android {
 dependencies {
     implementation("org.commonmark:commonmark:0.24.0")
     implementation("androidx.biometric:biometric:1.1.0")
-    implementation(files(sherpaAar))
+    implementation(sherpaAarDependency)
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }
 
-tasks.named("preBuild") {
-    dependsOn(downloadSherpaOnnxAar)
-}
