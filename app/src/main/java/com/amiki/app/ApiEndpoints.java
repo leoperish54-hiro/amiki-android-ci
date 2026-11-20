@@ -28,6 +28,8 @@ final class ApiEndpoints {
     static final String MEMORY_SETTINGS = SETTINGS + "/memory";
     static final String MEMORY = API_V1 + "/memory";
     static final String LEARNING_REVIEW_QUEUE = API_V1 + "/learning/review-queue";
+    static final String LEARNING_NOTES = API_V1 + "/learning/notes";
+    static final String LEARNING_CONSOLIDATION_RUN = API_V1 + "/learning/consolidation/run";
     static final String UOSA_SETUP_ENROLLMENT_CHALLENGES = API_V1 + "/security/setup/enrollment-challenges";
     static final String UOSA_SETUP_ENROLL = API_V1 + "/security/setup/enroll";
     static final String UOSA_ENROLLMENT_CHALLENGES = API_V1 + "/security/devices/enrollment-challenges";
