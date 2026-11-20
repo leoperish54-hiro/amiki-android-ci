@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - feat/amiki-owned-hey-amiki-ci-validation
+  pull_request:
+    branches:
+      - fix/assistant-and-afdi-crash-guards-ci
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -59,7 +63,7 @@ jobs:
 
           keyword_line = " ".join(pieces) + " @hey_amiki"
           output = Path("generated/keywords.txt")
-          output.write_text(keyword_line + "\\n", encoding="utf-8")
+          output.write_text(keyword_line + "\n", encoding="utf-8")
           print("Verified keyword phrase: HEY AMIKI")
           print("BPE pieces:", " | ".join(pieces))
           print("Keyword file:", keyword_line)
