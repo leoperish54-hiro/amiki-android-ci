@@ -299,7 +299,22 @@ public final class AssistantEntryActivity extends Activity {
     private void startRecognition() {
         if (recognitionLaunched || isFinishing()) return;
         recognitionLaunched = true;
-        voiceSelection = AmikiVoiceEngine.resolve(this);
+        try {
+            voiceSelection = AmikiVoiceEngine.resolve(this);
+        } catch (RuntimeException providerFailure) {
+            Toast.makeText(this,
+                    "Amiki could not resolve the selected speech provider. No command was executed.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        if (voiceSelection == null) {
+            Toast.makeText(this,
+                    "Amiki could not select a speech provider. No command was executed.",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
         if (voiceSelection.provider == AmikiVoiceEngine.Provider.OFFLINE) {
             startOfflineRecognition();
             return;
