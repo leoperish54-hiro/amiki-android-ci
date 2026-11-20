@@ -66,6 +66,15 @@ public class ApiEndpointsTest {
                 "a31e7f0d-4a15-4e66-8f25-9e9d9db2a004-extra", "pause"));
     }
 
+    @Test
+    public void ownerLearningIntakeRoutesUsePrivilegedLearningSession() {
+        assertEquals(ApiEndpoints.API_V1 + "/learning/notes", ApiEndpoints.LEARNING_NOTES);
+        assertEquals(ApiEndpoints.API_V1 + "/learning/consolidation/run",
+                ApiEndpoints.LEARNING_CONSOLIDATION_RUN);
+        assertTrue(ApiConnection.isPrivilegedApiPath("/api/v1/learning/notes"));
+        assertTrue(ApiConnection.isPrivilegedApiPath("/api/v1/learning/consolidation/run"));
+    }
+
     private static void assertIllegalArgument(Runnable action) {
         try {
             action.run();
