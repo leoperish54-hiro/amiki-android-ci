@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-/** Adds the current short-lived UOSA session to local Core API requests. */
+/** Attaches the capability-appropriate UOSA session to local Core API requests. */
 final class ApiConnection {
     private ApiConnection() {}
 
@@ -18,15 +18,19 @@ final class ApiConnection {
         HttpURLConnection connection = (HttpURLConnection) endpoint.openConnection();
         if (!isCoreApiEndpoint(endpoint)) return connection;
         try {
-            String token = OwnerSessionVault.readToken(context);
+            String token = isPrivilegedApiPath(endpoint.getPath())
+                    ? OwnerSessionProvider.getPrivilegedToken(context)
+                    : OwnerSessionProvider.getGeneralToken(context);
             if (token != null && !token.isEmpty()) {
                 connection.setRequestProperty("Authorization", "Bearer " + token);
             }
             return connection;
         } catch (Exception failure) {
             connection.disconnect();
+            String profile = isPrivilegedApiPath(endpoint.getPath())
+                    ? "privileged Cipher/ALE/Cloud" : "general";
             throw new IOException(
-                    "The saved UOSA session could not be unlocked. Create a fresh owner session in Privacy & Security.",
+                    "The saved UOSA " + profile + " session could not be unlocked or renewed. Open Owner Security.",
                     failure
             );
         }
@@ -51,5 +55,13 @@ final class ApiConnection {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    static boolean isPrivilegedApiPath(String path) {
+        return path != null && (
+                path.startsWith("/api/v1/cipher/")
+                || path.startsWith("/api/v1/learning/")
+                || path.startsWith("/api/v1/cloud/")
+        );
     }
 }
