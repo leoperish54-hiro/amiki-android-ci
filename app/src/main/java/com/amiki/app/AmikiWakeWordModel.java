@@ -244,11 +244,11 @@ final class AmikiWakeWordModel {
                     report(listener, overall, "Downloading " + asset.name + "…");
                 }
 
-                if (received == asset.size && input.read() != -1) {
-                    android.util.Log.w("AmikiWakeWord",
-                            "Model host sent trailing bytes after pinned asset; ignoring bytes beyond verified size: asset="
-                                    + asset.name + ", host=" + host);
-                }
+                // Stop exactly at the pinned size. Do not perform an extra
+                // network read here: some CDN streams can fail while probing
+                // beyond the declared body even after all verified bytes arrived.
+                // Closing the stream is sufficient; only the bounded prefix is
+                // written and its SHA-256 remains mandatory below.
             }
 
             if (received < asset.size) {
