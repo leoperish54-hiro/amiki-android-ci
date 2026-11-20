@@ -194,6 +194,12 @@ final class DeviceTaskOrchestrator {
             return;
         }
 
+        if ("tap".equals(plan.actionType)
+                && UiActionRiskPolicy.requiresContextualOwnerReview(plan.targetLabel)) {
+            pauseForOwner(UiActionRiskPolicy.ownerReviewMessage());
+            return;
+        }
+
         try {
             String actionId;
             switch (plan.actionType) {
