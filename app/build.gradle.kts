@@ -1,3 +1,8 @@
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
 }
@@ -12,6 +17,75 @@ val hasCiSigning = listOf(
     ciKeyAlias,
     ciKeyPassword
 ).all { !it.isNullOrBlank() }
+
+val sherpaAar = layout.buildDirectory.file("third-party/sherpa-onnx-2.0.1.aar")
+val sherpaAarUrl =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar"
+val sherpaAarSha256 = "a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7"
+
+fun sha256(file: java.io.File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().buffered().use { input ->
+        val buffer = ByteArray(32 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+/*
+ * The upstream Android AAR is fetched only during builds and is SHA-256 pinned.
+ * This keeps the 47 MB native dependency out of both source repositories while
+ * ensuring CI and local builds resolve the exact same official release.
+ */
+val downloadSherpaOnnxAar by tasks.registering {
+    outputs.file(sherpaAar)
+    outputs.upToDateWhen { false }
+    doLast {
+        val destination = sherpaAar.get().asFile
+        if (destination.isFile && sha256(destination) == sherpaAarSha256) {
+            return@doLast
+        }
+        destination.parentFile.mkdirs()
+        val temporary = java.io.File(destination.parentFile, destination.name + ".part")
+        if (temporary.exists()) temporary.delete()
+
+        var connection: HttpURLConnection? = null
+        try {
+            connection = URL(sherpaAarUrl).openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = 30000
+            connection.readTimeout = 120000
+            connection.setRequestProperty("User-Agent", "Amiki-Android-Build/1.0")
+            connection.setRequestProperty("Accept", "application/octet-stream")
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                throw GradleException("sherpa-onnx download failed with HTTP $status")
+            }
+            connection.inputStream.use { input ->
+                FileOutputStream(temporary).use { output -> input.copyTo(output) }
+            }
+            val actual = sha256(temporary)
+            if (actual != sherpaAarSha256) {
+                throw GradleException("sherpa-onnx AAR SHA-256 mismatch: $actual")
+            }
+            if (destination.exists() && !destination.delete()) {
+                throw GradleException("Could not replace the existing sherpa-onnx AAR")
+            }
+            if (!temporary.renameTo(destination)) {
+                throw GradleException("Could not publish the verified sherpa-onnx AAR")
+            }
+        } catch (failure: Exception) {
+            temporary.delete()
+            throw failure
+        } finally {
+            connection?.disconnect()
+        }
+    }
+}
 
 android {
     namespace = "com.amiki.app"
@@ -51,9 +125,13 @@ android {
 dependencies {
     implementation("org.commonmark:commonmark:0.24.0")
     implementation("androidx.biometric:biometric:1.1.0")
-    implementation("ai.picovoice:porcupine-android:4.0.2")
+    implementation(files(sherpaAar))
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
+}
+
+tasks.named("preBuild") {
+    dependsOn(downloadSherpaOnnxAar)
 }
