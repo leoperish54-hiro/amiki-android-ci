@@ -144,7 +144,7 @@ public class UiActionDispatcherTest {
                 snapshot(button("Pause", true)), 0L));
     }
 
-    @Test public void semanticPostconditionRejectsA differentForegroundApp() {
+    @Test public void semanticPostconditionRejectsDifferentForegroundApp() {
         UiNodeSnapshot before = snapshot(button("Play"));
         UiActionDispatcher.Request request = UiActionDispatcher.tap(
                 "task-foreign-package", before, "Play",
