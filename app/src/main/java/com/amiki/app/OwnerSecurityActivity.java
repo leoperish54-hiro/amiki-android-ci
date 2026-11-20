@@ -38,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.MessageDigest;
+import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.SecureRandom;
 import java.util.UUID;
@@ -46,7 +47,9 @@ import java.util.concurrent.Executor;
 
 public final class OwnerSecurityActivity extends FragmentActivity {
     private static final String KEYSTORE = "AndroidKeyStore";
-    private static final String KEY_ALIAS = "amiki.uosa.owner-signing.v1";
+    static final String KEY_ALIAS = "amiki.uosa.owner-signing.v1";
+    private static final String ACTIVE_KEY_ALIAS_PREF = "owner_key_alias";
+    private static final String CONTINUITY_KEY_ALIAS = "amiki.uosa.continuity.v1";
     private static final int AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG;
     // Explicit Android-client scope profile. L2 scopes remain transaction-bound
     // and require a fresh biometric signature for each protected operation.
@@ -54,6 +57,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             "ale.review.read",
             "ale.review.approve",
             "ale.review.reject",
+            "ale.knowledge.submit",
             "ale.progress.read",
             "ale.progress.write",
             "ale.projects.read",
@@ -116,7 +120,9 @@ public final class OwnerSecurityActivity extends FragmentActivity {
     private EditText setupCodeInput;
     private Button createKeyButton;
     private Button enrollBackendButton;
-    private Button sessionButton;
+    private Button generalGrantButton;
+    private Button privilegedSessionButton;
+    private Button revokeGeneralButton;
     private Button signButton;
     private Executor executor;
     private String deviceId;
@@ -180,9 +186,23 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         enrollBackendButton.setOnClickListener(v -> enrollBackend());
         root.addView(enrollBackendButton);
 
-        sessionButton = actionButton("Create L1 owner session");
-        sessionButton.setOnClickListener(v -> createOwnerSession());
-        root.addView(sessionButton);
+        root.addView(section("EXISTING OWNER RECOVERY"));
+        root.addView(label("If you have your saved UOSA recovery codes, use the recovery ceremony to replace this device identity. Recovery revokes every previously enrolled device and session.", 12, muted, false));
+        Button recoveryButton = actionButton("Recover existing owner account");
+        recoveryButton.setOnClickListener(v -> startActivity(new android.content.Intent(this, UosaRecoveryActivity.class)));
+        root.addView(recoveryButton);
+
+        generalGrantButton = actionButton("Create persistent general access");
+        generalGrantButton.setOnClickListener(v -> createGeneralGrant());
+        root.addView(generalGrantButton);
+
+        privilegedSessionButton = actionButton("Create 15-minute Cipher / ALE / Cloud session");
+        privilegedSessionButton.setOnClickListener(v -> createPrivilegedSession());
+        root.addView(privilegedSessionButton);
+
+        revokeGeneralButton = actionButton("Revoke persistent general access");
+        revokeGeneralButton.setOnClickListener(v -> revokeGeneralGrant());
+        root.addView(revokeGeneralButton);
 
         signButton = actionButton("Test local biometric signing");
         signButton.setOnClickListener(v -> beginSigning());
@@ -192,7 +212,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         root.addView(backendState);
         root.addView(section("SECURITY BOUNDARY"));
         TextView boundary = label(
-                "The backend verifies P-256 signatures over one-time challenges. First enrollment uses a single-use setup code, not the retired owner bearer. L1 sessions last 15 minutes. Higher-risk actions require a fresh, transaction-bound L2 biometric signature. Cipher and Cipher X retain separate security boundaries; this Core session does not grant Cipher X L3 authority.",
+                "The backend verifies P-256 signatures over one-time challenges. General capabilities (including Chat and agents) use a persistent device-bound grant with renewable five-minute access tokens. Cipher, ALE and Cloud use a separate 15-minute privileged session. Higher-risk actions still require fresh, transaction-bound L2 biometric approval. Cipher X retains its separate L3 security boundary.",
                 12, muted, false);
         root.addView(boundary);
         root.addView(result);
@@ -251,10 +271,15 @@ public final class OwnerSecurityActivity extends FragmentActivity {
 
     private boolean hasKey() {
         try {
-            return loadKeyStore().containsAlias(KEY_ALIAS);
+            return loadKeyStore().containsAlias(activeKeyAlias());
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private String activeKeyAlias() {
+        return getSharedPreferences("amiki_uosa_device", MODE_PRIVATE)
+                .getString(ACTIVE_KEY_ALIAS_PREF, KEY_ALIAS);
     }
 
     private String getOrCreateDeviceId() {
@@ -282,16 +307,27 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         boolean registered = isBackendEnrolled();
         enrollBackendButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
                 && enrolled && !registered);
-        sessionButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
+        boolean hasGeneralGrant = OwnerSessionVault.generalGrantId(this) != null;
+        generalGrantButton.setText(hasGeneralGrant
+                ? "Persistent general grant already configured"
+                : "Create persistent general access");
+        generalGrantButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
+                && enrolled && registered && !hasGeneralGrant);
+        privilegedSessionButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
                 && enrolled && registered);
+        revokeGeneralButton.setEnabled(!operationInFlight && hasGeneralGrant);
         signButton.setEnabled(!operationInFlight && status == BiometricManager.BIOMETRIC_SUCCESS
                 && enrolled);
-        backendState.setText(OwnerSessionVault.hasToken(this)
-                ? "An active, encrypted UOSA session is stored. Expires at "
-                        + OwnerSessionVault.expiresAt(this) + " (Unix seconds)."
-                : registered
-                        ? "This device is enrolled. Create a fresh L1 session to access protected Core routes."
-                        : "This device is not enrolled with Core. Create a one-time setup code in Termux and enroll it here.");
+        backendState.setText("General: "
+                + (OwnerSessionVault.generalGrantId(this) != null
+                    ? (OwnerSessionVault.hasGeneralToken(this) ? "access token active; renewable grant stored"
+                        : "persistent grant stored; access token will renew on next request")
+                    : "no persistent grant")
+                + "\\nPrivileged Cipher/ALE/Cloud: "
+                + (OwnerSessionVault.hasPrivilegedToken(this)
+                    ? "15-minute session active until " + OwnerSessionVault.privilegedExpiresAt(this)
+                    : "no active 15-minute session")
+                + (registered ? "" : "\nThis device is not enrolled with Core."));
     }
 
     private boolean isBackendEnrolled() {
@@ -353,7 +389,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             KeyPairGenerator generator = KeyPairGenerator.getInstance(
                     KeyProperties.KEY_ALGORITHM_EC, KEYSTORE);
             KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
-                    KEY_ALIAS, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
+                    activeKeyAlias(), KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                     .setAlgorithmParameterSpec(new java.security.spec.ECGenParameterSpec("secp256r1"))
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .setUserAuthenticationRequired(true)
@@ -369,7 +405,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             boolean authEnforcedByHardware = android.os.Build.VERSION.SDK_INT < 29
                     || keyInfo.isUserAuthenticationRequirementEnforcedBySecureHardware();
             if (!hardwareBacked || !authEnforcedByHardware) {
-                loadKeyStore().deleteEntry(KEY_ALIAS);
+                loadKeyStore().deleteEntry(activeKeyAlias());
                 result.setText("This device did not provide a hardware-backed key with hardware-enforced biometric authentication. The key was discarded; UOSA enrollment is unavailable on this configuration.");
                 refreshState();
                 return;
@@ -392,7 +428,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             return;
         }
         try {
-            java.security.cert.Certificate certificate = loadKeyStore().getCertificate(KEY_ALIAS);
+            java.security.cert.Certificate certificate = loadKeyStore().getCertificate(activeKeyAlias());
             if (certificate == null) throw new IllegalStateException("The device public key is unavailable.");
             String publicKey = Base64.encodeToString(certificate.getPublicKey().getEncoded(), Base64.NO_WRAP);
             JSONObject request = new JSONObject();
@@ -440,46 +476,163 @@ public final class OwnerSecurityActivity extends FragmentActivity {
         }
     }
 
-    private void createOwnerSession() {
-        if (!hasKey() || operationInFlight) return;
+    private JSONArray scopeProfile(boolean privileged) {
+        JSONArray scopes = new JSONArray();
+        for (String scope : INITIAL_SCOPES) {
+            boolean isPrivileged = scope.startsWith("cipher.")
+                    || scope.startsWith("ale.") || scope.startsWith("cloud.");
+            if (isPrivileged == privileged) scopes.put(scope);
+        }
+        return scopes;
+    }
+
+    private void createGeneralGrant() {
+        if (!hasKey() || operationInFlight || !isBackendEnrolled()) return;
+        startOperation("Preparing a separate hardware-backed continuity key…");
+        new Thread(() -> {
+            try {
+                String continuityPublicKey = ensureContinuityKey();
+                JSONObject request = new JSONObject();
+                request.put("device_id", deviceId);
+                request.put("audience", "amiki-core");
+                request.put("scopes", scopeProfile(false));
+                request.put("continuity_public_key", continuityPublicKey);
+                JSONObject challenge = postJson(
+                        ApiEndpoints.UOSA_GENERAL_GRANT_CHALLENGES, request, null);
+                String message = challenge.getString("message");
+                runOnUiThread(() -> authenticateAndSign(message,
+                        "Approve persistent general capability access", signature -> new Thread(() -> {
+                            try {
+                                JSONObject complete = new JSONObject();
+                                complete.put("challenge_id", challenge.getString("challenge_id"));
+                                complete.put("signature", signature);
+                                JSONObject grant = postJson(ApiEndpoints.UOSA_GENERAL_GRANTS, complete, null);
+                                if (!"general".equals(grant.optString("session_class"))
+                                        || !grant.optBoolean("grant_persistent", false)) {
+                                    throw new IllegalStateException("Backend did not confirm a persistent general grant.");
+                                }
+                                OwnerSessionVault.saveGeneralToken(this,
+                                        grant.getString("access_token"),
+                                        grant.getLong("expires_at"),
+                                        grant.getString("grant_id"));
+                                runOnUiThread(() -> finishOperation(
+                                        "Persistent general access is active. Its short-lived token renews silently using the separate device continuity key. Scopes: "
+                                                + grant.optJSONArray("scopes")));
+                            } catch (Exception failure) {
+                                runOnUiThread(() -> finishOperation(
+                                        "General authorization failed: " + safeMessage(failure)));
+                            }
+                        }).start()));
+            } catch (Exception failure) {
+                runOnUiThread(() -> finishOperation(
+                        "Could not prepare general authorization: " + safeMessage(failure)));
+            }
+        }, "amiki-uosa-general-grant").start();
+    }
+
+    private void createPrivilegedSession() {
+        if (!hasKey() || operationInFlight || !isBackendEnrolled()) return;
+        JSONObject request = new JSONObject();
         try {
-            JSONObject request = new JSONObject();
             request.put("device_id", deviceId);
             request.put("audience", "amiki-core");
-            JSONArray scopes = new JSONArray();
-            for (String scope : INITIAL_SCOPES) scopes.put(scope);
-            request.put("scopes", scopes);
-            startOperation("Requesting a one-time owner session challenge…");
-            new Thread(() -> {
-                try {
-                    JSONObject challenge = postJson(ApiEndpoints.UOSA_CHALLENGES, request, null);
-                    String message = challenge.getString("message");
-                    runOnUiThread(() -> authenticateAndSign(message,
-                            "Create a short-lived owner session", signature -> new Thread(() -> {
-                                try {
-                                    JSONObject complete = new JSONObject();
-                                    complete.put("challenge_id", challenge.getString("challenge_id"));
-                                    complete.put("signature", signature);
-                                    JSONObject session = postJson(ApiEndpoints.UOSA_SESSIONS, complete, null);
-                                    String accessToken = session.getString("access_token");
-                                    OwnerSessionVault.saveToken(this, accessToken, session.getLong("expires_at"));
-                                    runOnUiThread(() -> finishOperation(
-                                            "UOSA L1 session issued and encrypted in Android Keystore-backed storage. Expires in "
-                                                    + session.optInt("expires_in_seconds", 0) + " seconds. Scopes: "
-                                                    + session.optJSONArray("scopes")));
-                                } catch (Exception failure) {
-                                    runOnUiThread(() -> finishOperation(
-                                            "Owner session creation failed: " + safeMessage(failure)));
-                                }
-                            }).start()));
-                } catch (Exception failure) {
-                    runOnUiThread(() -> finishOperation(
-                            "Could not request owner session challenge: " + safeMessage(failure)));
-                }
-            }).start();
+            request.put("scopes", scopeProfile(true));
         } catch (Exception failure) {
-            finishOperation("Could not prepare owner session request: " + safeMessage(failure));
+            finishOperation("Could not prepare privileged session request: " + safeMessage(failure));
+            return;
         }
+        startOperation("Requesting a separate 15-minute Cipher/ALE/Cloud session challenge…");
+        new Thread(() -> {
+            try {
+                JSONObject challenge = postJson(ApiEndpoints.UOSA_CHALLENGES, request, null);
+                String message = challenge.getString("message");
+                runOnUiThread(() -> authenticateAndSign(message,
+                        "Approve 15-minute privileged capability access", signature -> new Thread(() -> {
+                            try {
+                                JSONObject complete = new JSONObject();
+                                complete.put("challenge_id", challenge.getString("challenge_id"));
+                                complete.put("signature", signature);
+                                JSONObject session = postJson(ApiEndpoints.UOSA_SESSIONS, complete, null);
+                                if (!"privileged".equals(session.optString("session_class"))
+                                        || session.optInt("expires_in_seconds", 0) != 900) {
+                                    throw new IllegalStateException("Backend did not issue the expected privileged 15-minute session.");
+                                }
+                                OwnerSessionVault.savePrivilegedToken(this,
+                                        session.getString("access_token"), session.getLong("expires_at"));
+                                runOnUiThread(() -> finishOperation(
+                                        "Privileged session issued. Cipher, ALE and Cloud access expires in 15 minutes. General capabilities remain on their separate renewable grant."));
+                            } catch (Exception failure) {
+                                runOnUiThread(() -> finishOperation(
+                                        "Privileged session creation failed: " + safeMessage(failure)));
+                            }
+                        }).start()));
+            } catch (Exception failure) {
+                runOnUiThread(() -> finishOperation(
+                        "Could not request privileged session challenge: " + safeMessage(failure)));
+            }
+        }, "amiki-uosa-privileged-session").start();
+    }
+
+    private String ensureContinuityKey() throws Exception {
+        KeyStore store = loadKeyStore();
+        if (!store.containsAlias(CONTINUITY_KEY_ALIAS)) {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_EC, KEYSTORE);
+            KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(
+                    CONTINUITY_KEY_ALIAS,
+                    KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
+                    .setAlgorithmParameterSpec(new java.security.spec.ECGenParameterSpec("secp256r1"))
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setUserAuthenticationRequired(false)
+                    .build();
+            generator.initialize(spec);
+            java.security.KeyPair pair = generator.generateKeyPair();
+            KeyInfo info = java.security.KeyFactory.getInstance(
+                    pair.getPrivate().getAlgorithm(), KEYSTORE)
+                    .getKeySpec(pair.getPrivate(), KeyInfo.class);
+            if (!info.isInsideSecureHardware()) {
+                store.deleteEntry(CONTINUITY_KEY_ALIAS);
+                throw new IllegalStateException(
+                        "This device did not provide a hardware-backed continuity key. Persistent general access is disabled rather than using a software key.");
+            }
+        }
+        java.security.cert.Certificate certificate = loadKeyStore().getCertificate(CONTINUITY_KEY_ALIAS);
+        if (certificate == null) throw new IllegalStateException("Continuity public key is unavailable.");
+        PrivateKey privateKey = (PrivateKey) loadKeyStore().getKey(CONTINUITY_KEY_ALIAS, null);
+        KeyInfo info = java.security.KeyFactory.getInstance(privateKey.getAlgorithm(), KEYSTORE)
+                .getKeySpec(privateKey, KeyInfo.class);
+        if (!info.isInsideSecureHardware() || info.isUserAuthenticationRequired()) {
+            throw new IllegalStateException("The continuity key must be hardware-backed and separate from biometric owner approval.");
+        }
+        return Base64.encodeToString(certificate.getPublicKey().getEncoded(), Base64.NO_WRAP);
+    }
+
+    private void revokeGeneralGrant() {
+        if (operationInFlight || OwnerSessionVault.generalGrantId(this) == null) return;
+        startOperation("Revoking persistent general access for this device…");
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                String token = OwnerSessionProvider.getGeneralToken(this);
+                if (token == null) throw new IllegalStateException("No active general grant session is available to revoke.");
+                connection = (HttpURLConnection) new java.net.URL(
+                        ApiEndpoints.UOSA_GENERAL_GRANT_CURRENT).openConnection();
+                connection.setRequestMethod("DELETE");
+                connection.setConnectTimeout(7000);
+                connection.setReadTimeout(12000);
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+                int code = connection.getResponseCode();
+                if (code < 200 || code >= 300) throw new java.io.IOException("Backend returned HTTP " + code + ".");
+                OwnerSessionVault.clearGeneral(this);
+                KeyStore store = loadKeyStore();
+                if (store.containsAlias(CONTINUITY_KEY_ALIAS)) store.deleteEntry(CONTINUITY_KEY_ALIAS);
+                runOnUiThread(() -> finishOperation("Persistent general grant revoked. Chat, agents and other general capabilities will require owner re-authorization."));
+            } catch (Exception failure) {
+                runOnUiThread(() -> finishOperation("Could not revoke persistent general access: " + safeMessage(failure)));
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }, "amiki-uosa-revoke-general-grant").start();
     }
 
     private interface SignedChallengeCallback {
@@ -490,7 +643,7 @@ public final class OwnerSecurityActivity extends FragmentActivity {
             String message, String promptSubtitle, SignedChallengeCallback callback) {
         try {
             java.security.PrivateKey privateKey =
-                    (java.security.PrivateKey) loadKeyStore().getKey(KEY_ALIAS, null);
+                    (java.security.PrivateKey) loadKeyStore().getKey(activeKeyAlias(), null);
             Signature signature = Signature.getInstance("SHA256withECDSA");
             signature.initSign(privateKey);
             BiometricPrompt prompt = new BiometricPrompt(this, executor,

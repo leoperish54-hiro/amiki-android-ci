@@ -2632,6 +2632,13 @@ public class MobileShellActivity extends Activity {
             body.addView(warning, warningParams);
         }
 
+        String assistantSummary = !AssistantRoleGateway.isAvailable(this)
+                ? AssistantRoleGateway.status(this)
+                : AssistantRoleGateway.isHeld(this)
+                    ? "System assistant active • invoke by Android gesture • no wake word"
+                    : "Configure system assistant invocation while Amiki is closed";
+        addSettingsRow(body, "🎙", "Voice & Background Assistant", assistantSummary,
+                v -> requestAssistantRole());
         addSettingsRow(body, "☼", "Appearance", "Theme & display", v -> showAppearanceSettings());
         String modelSummary = model == null
                 ? "Live model details unavailable"
@@ -5163,7 +5170,11 @@ public class MobileShellActivity extends Activity {
             JSONObject request,
             Map<String, String> additionalHeaders
     ) throws Exception {
-        HttpURLConnection c = ApiConnection.open(this, endpoint);
+        String elevatedAgentToken = DIRECT_AGENT.equals(endpoint)
+                ? UosaAgentAuthorization.obtainTokenBlocking(this, request) : null;
+        HttpURLConnection c = elevatedAgentToken == null
+                ? ApiConnection.open(this, endpoint)
+                : ApiConnection.openWithBearer(endpoint, elevatedAgentToken);
         try {
             c.setRequestMethod("POST");
             c.setConnectTimeout(10000);
@@ -5450,6 +5461,15 @@ public class MobileShellActivity extends Activity {
     }
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if (requestCode == 7005) {
+            Toast.makeText(this,
+                    AssistantRoleGateway.isHeld(this)
+                            ? "Amiki is now selected as the Android assistant. Use the system assistant gesture to invoke it."
+                            : "Amiki was not selected as the Android assistant.",
+                    Toast.LENGTH_LONG).show();
+            showSettings();
+            return;
+        }
         if(requestCode==VOICE_INPUT) voiceInputInFlight = false;
         if (requestCode == PICK_WHATSAPP_CONTACT) { handleWhatsAppContactResult(resultCode, data); return; }
         if(resultCode!=RESULT_OK||data==null){

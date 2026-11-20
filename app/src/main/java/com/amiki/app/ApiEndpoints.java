@@ -28,6 +28,8 @@ final class ApiEndpoints {
     static final String MEMORY_SETTINGS = SETTINGS + "/memory";
     static final String MEMORY = API_V1 + "/memory";
     static final String LEARNING_REVIEW_QUEUE = API_V1 + "/learning/review-queue";
+    static final String LEARNING_NOTES = API_V1 + "/learning/notes";
+    static final String LEARNING_CONSOLIDATION_RUN = API_V1 + "/learning/consolidation/run";
     static final String UOSA_SETUP_ENROLLMENT_CHALLENGES = API_V1 + "/security/setup/enrollment-challenges";
     static final String UOSA_SETUP_ENROLL = API_V1 + "/security/setup/enroll";
     static final String UOSA_ENROLLMENT_CHALLENGES = API_V1 + "/security/devices/enrollment-challenges";
@@ -36,6 +38,13 @@ final class ApiEndpoints {
     static final String UOSA_SESSIONS = API_V1 + "/security/sessions";
     static final String UOSA_ELEVATION_CHALLENGES = API_V1 + "/security/elevation-challenges";
     static final String UOSA_ELEVATED_SESSIONS = API_V1 + "/security/elevated-sessions";
+    static final String UOSA_RECOVERY_CHALLENGES = API_V1 + "/security/recovery/challenges";
+    static final String UOSA_RECOVERY_COMPLETE = API_V1 + "/security/recovery/complete";
+    static final String UOSA_GENERAL_GRANT_CHALLENGES = API_V1 + "/security/general-grants/challenges";
+    static final String UOSA_GENERAL_GRANTS = API_V1 + "/security/general-grants";
+    static final String UOSA_GENERAL_GRANT_REFRESH_CHALLENGES_PREFIX = UOSA_GENERAL_GRANTS + "/";
+    static final String UOSA_GENERAL_GRANT_REFRESH = UOSA_GENERAL_GRANTS + "/refresh";
+    static final String UOSA_GENERAL_GRANT_CURRENT = UOSA_GENERAL_GRANTS + "/current";
     static final String CIPHER_STATUS = API_V1 + "/cipher/status";
     static final String CIPHER_INSPECT = API_V1 + "/cipher/inspect";
     static final String CAPABILITIES = API_V1 + "/capabilities";
@@ -53,6 +62,9 @@ final class ApiEndpoints {
     static final String DEVICE_STATE = API_V1 + "/device/state";
     static final String DEVICE_EXECUTE = API_V1 + "/device/execute";
     static final String DEVICE_PLAN = API_V1 + "/device/plan";
+    static final String DEVICE_UI_ACTION_AUTHORIZE = API_V1 + "/device/ui-actions/authorize";
+    static final String DEVICE_UI_ACTION_RESULT = API_V1 + "/device/ui-actions/result";
+    static final String DEVICE_UI_TASK_NEXT = API_V1 + "/device/ui-tasks/next";
 
     static String cloudGoalAction(String goalId, String action) {
         if (!"pause".equals(action) && !"resume".equals(action) && !"cancel".equals(action)) {

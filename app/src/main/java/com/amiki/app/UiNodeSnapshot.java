@@ -20,6 +20,7 @@ public final class UiNodeSnapshot {
         public final boolean scrollable;
         public final boolean editable;
         public final boolean password;
+        public final boolean visibleToUser;
         public final int left;
         public final int top;
         public final int right;
@@ -29,6 +30,15 @@ public final class UiNodeSnapshot {
                     String contentDescription, String viewId, boolean clickable,
                     boolean scrollable, boolean editable, boolean password,
                     int left, int top, int right, int bottom) {
+            this(index, parentIndex, className, text, contentDescription, viewId,
+                    clickable, scrollable, editable, password,
+                    left, top, right, bottom, true);
+        }
+
+        public Node(int index, int parentIndex, String className, String text,
+                    String contentDescription, String viewId, boolean clickable,
+                    boolean scrollable, boolean editable, boolean password,
+                    int left, int top, int right, int bottom, boolean visibleToUser) {
             this.index = index;
             this.parentIndex = parentIndex;
             this.className = clean(className);
@@ -39,6 +49,7 @@ public final class UiNodeSnapshot {
             this.scrollable = scrollable;
             this.editable = editable;
             this.password = password;
+            this.visibleToUser = visibleToUser;
             this.left = left;
             this.top = top;
             this.right = right;
@@ -52,12 +63,28 @@ public final class UiNodeSnapshot {
     }
 
     public final String packageName;
+    public final int windowId;
     public final long capturedAtUptimeMillis;
     public final List<Node> nodes;
+    /** False when the bounded traversal omitted any part of the accessibility tree. */
+    public final boolean treeComplete;
 
     public UiNodeSnapshot(String packageName, long capturedAtUptimeMillis, List<Node> nodes) {
+        this(packageName, -1, capturedAtUptimeMillis, nodes);
+    }
+
+    public UiNodeSnapshot(String packageName, int windowId,
+                          long capturedAtUptimeMillis, List<Node> nodes) {
+        this(packageName, windowId, capturedAtUptimeMillis, nodes, true);
+    }
+
+    public UiNodeSnapshot(String packageName, int windowId,
+                          long capturedAtUptimeMillis, List<Node> nodes,
+                          boolean treeComplete) {
         this.packageName = clean(packageName);
+        this.windowId = windowId;
         this.capturedAtUptimeMillis = capturedAtUptimeMillis;
+        this.treeComplete = treeComplete;
         List<Node> bounded = new ArrayList<>();
         if (nodes != null) {
             for (Node node : nodes) {
