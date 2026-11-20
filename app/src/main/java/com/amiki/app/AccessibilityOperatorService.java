@@ -279,7 +279,7 @@ public final class AccessibilityOperatorService extends AccessibilityService {
         long now = SystemClock.uptimeMillis();
         if (now - lastCaptureUptimeMillis < 200L) return;
         CharSequence packageName = event.getPackageName();
-        if (packageName == null || "com.amiki.app".contentEquals(packageName)) return;
+        if (packageName != null && "com.amiki.app".contentEquals(packageName)) return;
         AccessibilityNodeInfo root = findForegroundApplicationRoot();
         if (root == null) return;
         UiNodeSnapshot published = null;
@@ -538,39 +538,76 @@ public final class AccessibilityOperatorService extends AccessibilityService {
      * to the app the owner asked Amiki to operate.
      */
     private AccessibilityNodeInfo findForegroundApplicationRoot() {
-        List<AccessibilityWindowInfo> windows;
-        try { windows = getWindows(); }
-        catch (RuntimeException unavailable) { return null; }
-        AccessibilityNodeInfo fallback = null;
+        List<AccessibilityWindowInfo> windows = null;
         try {
-            for (AccessibilityWindowInfo window : windows) {
-                if (window == null || window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-                    continue;
+            windows = getWindows();
+        } catch (RuntimeException unavailable) {
+            // Some vendor builds may not expose a usable window list. Try the
+            // active-root API below, but still reject Amiki's own window.
+        }
+
+        AccessibilityNodeInfo fallback = null;
+        List<Integer> inputMethodWindowIds = new ArrayList<>();
+        if (windows != null) {
+            try {
+                for (AccessibilityWindowInfo window : windows) {
+                    if (window == null) continue;
+                    if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                        inputMethodWindowIds.add(window.getId());
+                        continue;
+                    }
+
+                    AccessibilityNodeInfo root = null;
+                    try {
+                        root = window.getRoot();
+                    } catch (RuntimeException ignored) { }
+                    if (root == null) continue;
+
+                    CharSequence packageName = root.getPackageName();
+                    if (packageName == null || "com.amiki.app".contentEquals(packageName)) {
+                        root.recycle();
+                        continue;
+                    }
+                    if (window.isFocused()) {
+                        if (fallback != null) fallback.recycle();
+                        return root;
+                    }
+                    if (fallback == null && window.isActive()) {
+                        fallback = root;
+                    } else {
+                        root.recycle();
+                    }
                 }
-                AccessibilityNodeInfo root = null;
-                try { root = window.getRoot(); }
-                catch (RuntimeException ignored) { }
-                if (root == null) continue;
-                CharSequence packageName = root.getPackageName();
-                if (packageName == null || "com.amiki.app".contentEquals(packageName)) {
-                    root.recycle();
-                    continue;
-                }
-                if (window.isFocused()) {
-                    if (fallback != null) fallback.recycle();
-                    return root;
-                }
-                if (fallback == null && window.isActive()) fallback = root;
-                else root.recycle();
-            }
-        } finally {
-            for (AccessibilityWindowInfo window : windows) {
-                if (window != null) {
-                    try { window.recycle(); } catch (RuntimeException ignored) { }
+            } finally {
+                for (AccessibilityWindowInfo window : windows) {
+                    if (window != null) {
+                        try { window.recycle(); } catch (RuntimeException ignored) { }
+                    }
                 }
             }
         }
-        return fallback;
+
+        if (fallback != null) return fallback;
+
+        // A focused/active window can be omitted from getWindows() by some
+        // OEM accessibility implementations. Fall back to the active root.
+        AccessibilityNodeInfo activeRoot = null;
+        try {
+            activeRoot = getRootInActiveWindow();
+        } catch (RuntimeException unavailable) { }
+        if (activeRoot == null) return null;
+
+        int activeWindowId = activeRoot.getWindowId();
+        if (inputMethodWindowIds.contains(activeWindowId)) {
+            activeRoot.recycle();
+            return null;
+        }
+        CharSequence packageName = activeRoot.getPackageName();
+        if (packageName == null || "com.amiki.app".contentEquals(packageName)) {
+            activeRoot.recycle();
+            return null;
+        }
+        return activeRoot;
     }
 
     /** Returns one exact app window after an approval handoff. */
