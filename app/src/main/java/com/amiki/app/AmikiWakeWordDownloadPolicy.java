@@ -27,6 +27,14 @@ final class AmikiWakeWordDownloadPolicy {
         return declaredBytes > 0L && declaredBytes != pinnedBytes;
     }
 
+    /** Returns a read size that cannot cross the pinned byte boundary. */
+    static int boundedReadLength(int bufferLength, long expectedBytes, long receivedBytes) {
+        if (bufferLength <= 0 || expectedBytes < 0L || receivedBytes < 0L) {
+            throw new IllegalArgumentException("Invalid bounded download read arguments.");
+        }
+        return (int) Math.min((long) bufferLength, Math.max(0L, expectedBytes - receivedBytes));
+    }
+
     static boolean isRetryableHttpStatus(int status) {
         return status == 408 || status == 429 || (status >= 500 && status <= 599);
     }
