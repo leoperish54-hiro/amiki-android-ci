@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="amiki_accessibility_service_description">Amiki uses accessibility only during an owner-armed device task to inspect the foreground app interface. It does not monitor continuously or perform actions in this observation-only stage. Screen content is held temporarily in memory and is not uploaded or saved by this service.</string>
+</resources>

@@ -24,6 +24,45 @@ public class DeviceCommandParserTest {
     }
 
     @Test
+    public void parsesGenericInstalledAppLaunch() {
+        DeviceCommandParser.Command command =
+                DeviceCommandParser.parse("Amiki, open Spotify");
+        assertEquals(DeviceCommandParser.Action.OPEN_APP, command.action);
+        assertEquals("Spotify", command.argument);
+    }
+
+    @Test
+    public void parsesLaunchVerbAndAppLabel() {
+        DeviceCommandParser.Command command =
+                DeviceCommandParser.parse("launch WhatsApp");
+        assertEquals(DeviceCommandParser.Action.OPEN_APP, command.action);
+        assertEquals("WhatsApp", command.argument);
+    }
+
+    @Test
+    public void stripsTrailingPunctuationFromAppLabel() {
+        DeviceCommandParser.Command command =
+                DeviceCommandParser.parse("open Spotify.");
+        assertEquals("Spotify", command.argument);
+    }
+
+    @Test
+    public void rejectsOversizedAppLabels() {
+        String longLabel = new String(new char[97]).replace('\0', 'x');
+        assertNull(DeviceCommandParser.parse("open " + longLabel));
+    }
+
+    @Test
+    public void leavesCompoundOpenAndPlayRequestForTheCorePlanner() {
+        assertNull(DeviceCommandParser.parse("open Spotify and play Lucid Dreams"));
+    }
+
+    @Test
+    public void leavesUrlsForTheCorePlanner() {
+        assertNull(DeviceCommandParser.parse("open https://example.com"));
+    }
+
+    @Test
     public void parsesAlarm24Hour() {
         DeviceCommandParser.Command command =
                 DeviceCommandParser.parse("set an alarm for 18:30 to study MAT 1100");

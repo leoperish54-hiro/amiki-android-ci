@@ -35,6 +35,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.provider.OpenableColumns;
+import android.provider.ContactsContract;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.widget.Button;
@@ -120,6 +121,9 @@ public class MobileShellActivity extends Activity {
     private static final int PICK_ATTACHMENT = 7001;
     private static final int VOICE_INPUT = 7002;
     private static final int LOCATION_PERMISSION = 7003;
+    private static final int PICK_WHATSAPP_CONTACT = 7004;
+    private String pendingWhatsAppMessage;
+    private DeviceBridge.Callback pendingWhatsAppCallback;
     private static final int MAX_ATTACHMENTS = 5;
     private static final long MAX_ATTACHMENT_BYTES = 20L * 1024L * 1024L;
     private static final long MAX_TOTAL_ATTACHMENT_BYTES = 40L * 1024L * 1024L;
@@ -246,6 +250,77 @@ public class MobileShellActivity extends Activity {
         persistConversationHistory();
         showDashboard();
         checkHealth();
+        dispatchAssistantRequest(getIntent());
+    }
+
+    private void requestAssistantRole() {
+        if (!AssistantRoleGateway.isAvailable(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Android assistant unavailable")
+                    .setMessage(AssistantRoleGateway.status(this))
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+        if (AssistantRoleGateway.isHeld(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Amiki is your default assistant")
+                    .setMessage("Use the device's configured assistant gesture to invoke Amiki. Speech recognition starts only after that explicit invocation. This does not enable an always-listening 'Amiki' wake word.")
+                    .setPositiveButton("Understood", null)
+                    .show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Set Amiki as your device assistant?")
+                .setMessage("Android will ask you to choose the default assistant. When selected, use your phone's assistant gesture to invoke Amiki without manually opening the app. Speech recognition starts only after that explicit invocation. This does not enable an always-listening 'Amiki' wake word or microphone capture in standby.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Continue", (dialog, which) -> {
+                    try {
+                        startActivityForResult(AssistantRoleGateway.createRequestIntent(this), 7005);
+                    } catch (Exception failure) {
+                        Toast.makeText(this, "Android could not open the assistant-role selection.", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
+    }
+
+    private void dispatchAssistantRequest(Intent source) {
+        if (source == null) return;
+        String command = source.getStringExtra(AssistantEntryActivity.EXTRA_ASSISTANT_REQUEST);
+        if (command == null || command.trim().isEmpty()) return;
+        source.removeExtra(AssistantEntryActivity.EXTRA_ASSISTANT_REQUEST);
+        if (chatRequestInFlight || conversationHistoryLoading) {
+            Toast.makeText(this, "Amiki is already handling another request. Please try again.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final String request;
+        try {
+            request = VoiceAssistantCommandValidator.validate(command);
+        } catch (IllegalArgumentException invalid) {
+            Toast.makeText(this, invalid.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        active = 0;
+        chatDraft = request;
+        showChat();
+        content.post(() -> {
+            if (isFinishing() || content == null || chatRequestInFlight) return;
+            View inputView = content.findViewWithTag("amiki_input");
+            View sendView = content.findViewWithTag("amiki_send");
+            if (!(inputView instanceof EditText) || !(sendView instanceof Button)) {
+                Toast.makeText(this, "The assistant command could not be staged in chat.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            ((EditText) inputView).setText(request);
+            ((Button) sendView).performClick();
+        });
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        dispatchAssistantRequest(intent);
     }
 
     private void buildShell() {
@@ -337,7 +412,7 @@ public class MobileShellActivity extends Activity {
         TextView welcome = t("Welcome back,", 29, TEXT);
         welcome.setTypeface(null, Typeface.BOLD);
         body.addView(welcome, lp(-1, dp(40)));
-        TextView owner = t("Owner.", 31, PURPLE);
+        TextView owner = t("Chimz.", 31, PURPLE);
         owner.setTypeface(null, Typeface.BOLD);
         body.addView(owner, lp(-1, dp(42)));
 
@@ -1510,9 +1585,9 @@ public class MobileShellActivity extends Activity {
 
     private String greetingText(){
         int hour=Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        if(hour<12) return "Good morning 👋";
-        if(hour<18) return "Good afternoon 👋";
-        return "Good evening 👋";
+        if(hour<12) return "Good morning, Chimz 👋";
+        if(hour<18) return "Good afternoon, Chimz 👋";
+        return "Good evening, Chimz 👋";
     }
 
     private String runtimeState(JSONObject sys){
@@ -1966,7 +2041,7 @@ public class MobileShellActivity extends Activity {
         menuContent.setPadding(dp(14), dp(20), dp(14), dp(20));
         menuContent.setClipToPadding(false);
 
-        TextView id = t("🌸  AMIKI\\nDigital companion", 17, TEXT);
+        TextView id = t("🌸  AMIKI\\nChimz\\nDigital companion", 17, TEXT);
         id.setTypeface(null, Typeface.BOLD);
         menuContent.addView(id, lp(-1, dp(92)));
 
@@ -3682,6 +3757,17 @@ public class MobileShellActivity extends Activity {
 
         addLargeCard(body,"📦  Installed Apps","Discover and open apps",v ->
                 startActivity(new Intent(this, InstalledAppsActivity.class)));
+        addLargeCard(body,"🎙  Android Assistant",AssistantRoleGateway.status(this)
+                + " Use the phone's assistant gesture to issue a spoken command without manually opening Amiki.",v ->
+                requestAssistantRole());
+        addLargeCard(body,"♿  Accessibility Operator Setup","Explicitly enable Amiki in Android Accessibility settings",v ->
+                showAccessibilityOperatorSetup());
+        addLargeCard(body,"◉  Arm One-Task UI Observation","Observe foreground app UI only while a task is armed",v ->
+                armAccessibilityObservation());
+        addLargeCard(body,"■  STOP UI Observation","Immediately stop and clear the in-memory snapshot",v -> {
+            AccessibilityOperatorService.stopObservation();
+            Toast.makeText(this,"UI observation stopped.",Toast.LENGTH_SHORT).show();
+        });
         addLargeCard(body,"🌐  Open Browser","Ask the device agent to open a safe URL");
         addLargeCard(body,"🔊  Speak Test","Use Amiki TTS");
         addLargeCard(body,"↗  Share Test","Open Android share sheet");
@@ -3689,6 +3775,52 @@ public class MobileShellActivity extends Activity {
         addLargeCard(body,"⚙  Device State","Read Android version and API");
         addLargeCard(body,"⚙  Android Settings","Open device settings");
         content.addView(body,lp(-1,-2));
+    }
+
+    private boolean isAccessibilityOperatorEnabled() {
+        String enabled = android.provider.Settings.Secure.getString(
+                getContentResolver(),
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        if (enabled == null) return false;
+        String serviceName = AccessibilityOperatorService.class.getName().toLowerCase(Locale.ROOT);
+        return enabled.toLowerCase(Locale.ROOT).contains(serviceName);
+    }
+
+    private void showAccessibilityOperatorSetup() {
+        new AlertDialog.Builder(this)
+                .setTitle("Enable Amiki UI Operator")
+                .setMessage("Amiki needs your explicit permission to inspect the foreground app's accessible interface during a task you start. In this observation-only stage it does not tap, type, scroll, monitor continuously, save screen content, or upload it. You can disable the service at any time in Android Accessibility settings.\n\nOnly enable this if you understand and want this capability.")
+                .setNegativeButton("Not now", null)
+                .setPositiveButton("Open Android Settings", (dialog, which) -> {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    } catch (Exception failure) {
+                        Toast.makeText(this, "Android Accessibility settings could not be opened.", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
+    }
+
+    private void armAccessibilityObservation() {
+        if (!isAccessibilityOperatorEnabled()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Accessibility permission required")
+                    .setMessage("Enable Amiki UI Operator in Android Accessibility settings first. Observation remains off until you explicitly arm a task here.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Open settings", (dialog, which) -> showAccessibilityOperatorSetup())
+                    .show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Arm one-task observation?")
+                .setMessage("Amiki will temporarily inspect the foreground app's accessible UI after you leave this screen. No taps or other actions will be performed. Press STOP in Amiki to end observation. The captured snapshot stays in memory only.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Arm observation", (dialog, which) -> {
+                    AccessibilityOperatorService.armObservation(
+                            new DeviceTaskController(UUID.randomUUID().toString()));
+                    Toast.makeText(this, "One-task UI observation armed. Open the target app, then return to Amiki and press STOP.", Toast.LENGTH_LONG).show();
+                })
+                .show();
     }
 
     private void showBatteryState(){
@@ -4119,7 +4251,7 @@ public class MobileShellActivity extends Activity {
         else if(s.contains("device control")) showDevice();
         else if(s.contains("security agent") || s.contains("security audit")) showSecurityAgent();
         else if(s.contains("open browser")) { try { JSONObject a=new JSONObject(); a.put("url","https://www.google.com"); requestDeviceAction("open_url",a); } catch(Exception ignored) {} }
-        else if(s.contains("speak test")) { try { JSONObject a=new JSONObject(); a.put("text","Hello. Device integration is online."); requestDeviceAction("speak",a); } catch(Exception ignored) {} }
+        else if(s.contains("speak test")) { try { JSONObject a=new JSONObject(); a.put("text","Hello Chimz. Device integration is online."); requestDeviceAction("speak",a); } catch(Exception ignored) {} }
         else if(s.contains("share test")) { try { JSONObject a=new JSONObject(); a.put("text","Hello from Amiki device integration."); requestDeviceAction("share_text",a); } catch(Exception ignored) {} }
         else if(s.contains("battery state")) requestDeviceAction("battery_state",new JSONObject());
         else if(s.contains("device state")) requestDeviceAction("device_state",new JSONObject());
@@ -5254,6 +5386,22 @@ public class MobileShellActivity extends Activity {
         });
     }
 
+    /** Uses the system picker; does not scan the address book or send messages. */
+    public void executeWhatsAppCompose(String contactName, String message, DeviceBridge.Callback callback) {
+        if (contactName == null || contactName.trim().isEmpty() || message == null || message.trim().isEmpty()) {
+            callback.onResult("A contact and message are required. Nothing was opened."); return;
+        }
+        if (pendingWhatsAppCallback != null) { callback.onResult("Another contact selection is already in progress."); return; }
+        pendingWhatsAppMessage = message.trim();
+        pendingWhatsAppCallback = callback;
+        Intent picker = new Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
+        if (picker.resolveActivity(getPackageManager()) == null) {
+            pendingWhatsAppMessage = null; pendingWhatsAppCallback = null;
+            callback.onResult("No compatible Android contact picker is available. No message was prepared."); return;
+        }
+        try { startActivityForResult(picker, PICK_WHATSAPP_CONTACT); }
+        catch (Exception e) { pendingWhatsAppMessage = null; pendingWhatsAppCallback = null; callback.onResult("The contact picker could not be opened. No message was prepared."); }
+    }
     public void executeDeviceContactCall(String name, DeviceBridge.Callback callback) {
         if (deviceActionExecutor == null) deviceActionExecutor = new DeviceActionExecutor(this);
         boolean handled = deviceActionExecutor.tryExecute("call " + name, new DeviceActionExecutor.Callback() {
@@ -5303,6 +5451,7 @@ public class MobileShellActivity extends Activity {
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
         if(requestCode==VOICE_INPUT) voiceInputInFlight = false;
+        if (requestCode == PICK_WHATSAPP_CONTACT) { handleWhatsAppContactResult(resultCode, data); return; }
         if(resultCode!=RESULT_OK||data==null){
             if(requestCode==VOICE_INPUT) showChat();
             return;
@@ -5353,6 +5502,34 @@ public class MobileShellActivity extends Activity {
         }
     }
 
+    private void handleWhatsAppContactResult(int resultCode, Intent data) {
+        DeviceBridge.Callback callback = pendingWhatsAppCallback;
+        String message = pendingWhatsAppMessage;
+        pendingWhatsAppCallback = null; pendingWhatsAppMessage = null;
+        if (callback == null) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) { callback.onResult("Contact selection cancelled. No message was prepared or sent."); return; }
+        String displayName = "Selected contact"; String phoneNumber = "";
+        android.database.Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(data.getData(), new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+                int numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                if (nameIndex >= 0) displayName = cursor.getString(nameIndex);
+                if (numberIndex >= 0) phoneNumber = cursor.getString(numberIndex);
+            }
+        } catch (Exception e) { callback.onResult("The selected contact details could not be read. No message was prepared."); return; }
+        finally { if (cursor != null) cursor.close(); }
+        final String selectedName = displayName == null || displayName.trim().isEmpty() ? "Selected contact" : displayName.trim();
+        final String selectedNumber = phoneNumber == null ? "" : phoneNumber.trim();
+        if (selectedNumber.isEmpty()) { callback.onResult("The selected contact has no readable phone number. No message was prepared."); return; }
+        new AlertDialog.Builder(this).setTitle("Confirm WhatsApp message")
+            .setMessage("Recipient: " + selectedName + "\nPhone: " + selectedNumber + "\n\nMessage:\n" + message + "\n\nAmiki will open WhatsApp with this text. You will still need to press Send.")
+            .setNegativeButton("Cancel", (dialog, which) -> callback.onResult("Message cancelled. Nothing was sent."))
+            .setPositiveButton("Continue", (dialog, which) -> new CrossAppIntentGateway(this).openWhatsAppCompose(selectedNumber, message, callback::onResult))
+            .setOnCancelListener(dialog -> callback.onResult("Message cancelled. Nothing was sent."))
+            .show();
+    }
     private boolean isSupportedAttachment(Uri uri){
         String mime=getContentResolver().getType(uri);
         for(String allowed:SUPPORTED_ATTACHMENT_MIME_TYPES) if(allowed.equalsIgnoreCase(mime)) return true;
