@@ -85,7 +85,8 @@ final class AmikiWakeWordEngine {
 
         KeywordSpotter spotter = new KeywordSpotter(null, config);
         try {
-            OnlineStream stream = spotter.createStream();
+            // Empty keyword argument selects the verified keywordsFile in KeywordSpotterConfig.
+            OnlineStream stream = spotter.createStream("");
             if (stream == null || stream.getPtr() == 0L) {
                 throw new IllegalStateException("The local wake phrase could not be initialized.");
             }
