@@ -30,7 +30,9 @@ final class AmikiTermuxWakeWordBridge {
         StringBuilder value = new StringBuilder(64);
         for (byte item : bytes) value.append(String.format(Locale.ROOT, "%02x", item & 0xff));
         String generated = value.toString();
-        preferences.edit().putString(TOKEN_KEY, generated).commit();
+        if (!preferences.edit().putString(TOKEN_KEY, generated).commit()) {
+            throw new IllegalStateException("Could not persist the local Termux bridge token.");
+        }
         return generated;
     }
 
@@ -86,7 +88,7 @@ final class AmikiTermuxWakeWordBridge {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
-            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(0);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             connection.getResponseCode();
         } catch (IOException ignored) {
