@@ -17,7 +17,7 @@ final class TermuxBackendLauncher {
     static final String MODEL_BRIDGE_SCRIPT_PATH =
             "/data/data/com.termux/files/home/astra_core/scripts/amiki_wake_word_model_bridge.py";
 
-    // These paths match the documented Termux installation.
+    // These paths match the documented installation on Chimz's Termux environment.
     static final String SCRIPT_PATH =
             "/data/data/com.termux/files/home/astra_core/scripts/start_api.sh";
     static final String WORKING_DIRECTORY =
@@ -35,7 +35,7 @@ final class TermuxBackendLauncher {
         return command;
     }
 
-    static boolean startWakeWordModelBridge(Context context, String token) {
+    static boolean startWakeWordModelBridge(Context context, String socketName) {
         try {
             Intent command = new Intent();
             command.setClassName(PACKAGE_NAME, SERVICE_CLASS);
@@ -44,7 +44,9 @@ final class TermuxBackendLauncher {
             command.putExtra(EXTRA_WORKDIR, WORKING_DIRECTORY);
             command.putExtra(EXTRA_BACKGROUND, true);
             command.putExtra(EXTRA_ARGUMENTS,
-                    new String[]{MODEL_BRIDGE_SCRIPT_PATH, "--token", token});
+                    new String[]{MODEL_BRIDGE_SCRIPT_PATH, "--token-socket", socketName});
+            // The socket name is a locator, not a credential; the token is delivered
+            // only after the Android peer authenticates Termux by its kernel UID.
             return context.startService(command) != null;
         } catch (RuntimeException deniedOrUnavailable) {
             return false;
