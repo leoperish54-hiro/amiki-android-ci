@@ -79,6 +79,23 @@ final class AmikiTermuxWakeWordBridge {
         return connection;
     }
 
+    static void stop(String token) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(BASE_URL + "/v1/shutdown").openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            connection.getResponseCode();
+        } catch (IOException ignored) {
+            // The bridge may already have exited or failed before becoming ready.
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
     private static boolean isHealthy(String token) throws IOException {
         HttpURLConnection connection = null;
         try {
