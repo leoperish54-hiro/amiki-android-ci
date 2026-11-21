@@ -25,6 +25,11 @@ final class AmikiTermuxWakeWordBridge {
     private static final int CONNECT_TIMEOUT_MS = 1500;
     private static final int READ_TIMEOUT_MS = 2500;
     private static final long TOKEN_HANDOFF_TIMEOUT_MS = 30_000L;
+    private static final long MANUAL_HANDOFF_TIMEOUT_MS = 300_000L;
+
+    interface ManualLaunchListener {
+        void onCommandReady(String command);
+    }
     private static final long STARTUP_TIMEOUT_MS = 1_320_000L;
 
     private AmikiTermuxWakeWordBridge() { }
@@ -46,6 +51,12 @@ final class AmikiTermuxWakeWordBridge {
     }
 
     static void ensureRunning(Context context, String token) throws IOException {
+        ensureRunning(context, token, false, null);
+    }
+
+    static void ensureRunning(
+            Context context, String token, boolean manual, ManualLaunchListener listener)
+            throws IOException {
         // A refused connection is the expected state before the bridge is launched.
         // Only return early when the authenticated health probe succeeds.
         try {
@@ -56,14 +67,14 @@ final class AmikiTermuxWakeWordBridge {
 
         String socketName = bootstrapSocketName();
         try (LocalServerSocket server = new LocalServerSocket(socketName)) {
-            handoffTokenToTermux(context, server, socketName, token);
+            handoffTokenToTermux(context, server, socketName, token, manual, listener);
         }
         awaitHealthy(token);
     }
 
     private static void handoffTokenToTermux(
-            Context context, LocalServerSocket server, String socketName, String token)
-            throws IOException {
+            Context context, LocalServerSocket server, String socketName, String token,
+            boolean manual, ManualLaunchListener listener) throws IOException {
         final int expectedUid;
         try {
             expectedUid = context.getPackageManager()
@@ -101,7 +112,15 @@ final class AmikiTermuxWakeWordBridge {
         acceptor.setDaemon(true);
         acceptor.start();
 
-        if (!TermuxBackendLauncher.startWakeWordModelBridge(context, socketName)) {
+        if (manual) {
+            if (listener == null) {
+                closeQuietly(server);
+                throw new IOException("Manual Termux launch instructions are unavailable.");
+            }
+            String command = "python \"$HOME/astra_core/scripts/amiki_wake_word_model_bridge.py\""
+                    + " --token-socket " + socketName;
+            listener.onCommandReady(command);
+        } else if (!TermuxBackendLauncher.startWakeWordModelBridge(context, socketName)) {
             closeQuietly(server);
             joinQuietly(acceptor);
             throw new IOException(
@@ -110,7 +129,7 @@ final class AmikiTermuxWakeWordBridge {
         }
 
         try {
-            acceptor.join(TOKEN_HANDOFF_TIMEOUT_MS);
+            acceptor.join(manual ? MANUAL_HANDOFF_TIMEOUT_MS : TOKEN_HANDOFF_TIMEOUT_MS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             closeQuietly(server);
@@ -118,7 +137,9 @@ final class AmikiTermuxWakeWordBridge {
         }
         if (acceptor.isAlive()) {
             closeQuietly(server);
-            throw new IOException("Termux did not connect to Amiki's local bootstrap socket.");
+            throw new IOException(manual
+                    ? "Manual Termux launch timed out. Return to Hey Amiki and retry installation."
+                    : "Termux did not connect to Amiki's local bootstrap socket.");
         }
         if (!delivered.get()) {
             IOException cause = failure.get();
