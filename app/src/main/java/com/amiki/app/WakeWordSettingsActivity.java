@@ -59,7 +59,7 @@ public final class WakeWordSettingsActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView intro = text(
-                "Amiki's own on-device wake-word detector. Install its small English keyword model once, then enable hands-free “Hey Amiki” listening. No Picovoice account or AccessKey is required.",
+                "Amiki's own on-device wake-word detector. Termux securely provisions the English model; Amiki imports and verifies it, then performs all microphone capture and detection locally. Termux must allow external app commands. No Picovoice account or AccessKey is required.",
                 14, 0xFFB7C2D9);
         root.addView(intro, withTop(intro, 14));
 
