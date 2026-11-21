@@ -12,6 +12,10 @@ final class TermuxBackendLauncher {
     static final String EXTRA_PATH = "com.termux.RUN_COMMAND_PATH";
     static final String EXTRA_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR";
     static final String EXTRA_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND";
+    static final String EXTRA_ARGUMENTS = "com.termux.RUN_COMMAND_ARGUMENTS";
+    static final String PYTHON_PATH = "/data/data/com.termux/files/usr/bin/python";
+    static final String MODEL_BRIDGE_SCRIPT_PATH =
+            "/data/data/com.termux/files/home/astra_core/scripts/amiki_wake_word_model_bridge.py";
 
     // These paths match the documented Termux installation.
     static final String SCRIPT_PATH =
@@ -29,6 +33,22 @@ final class TermuxBackendLauncher {
         command.putExtra(EXTRA_WORKDIR, WORKING_DIRECTORY);
         command.putExtra(EXTRA_BACKGROUND, true);
         return command;
+    }
+
+    static boolean startWakeWordModelBridge(Context context, String token) {
+        try {
+            Intent command = new Intent();
+            command.setClassName(PACKAGE_NAME, SERVICE_CLASS);
+            command.setAction(ACTION);
+            command.putExtra(EXTRA_PATH, PYTHON_PATH);
+            command.putExtra(EXTRA_WORKDIR, WORKING_DIRECTORY);
+            command.putExtra(EXTRA_BACKGROUND, true);
+            command.putExtra(EXTRA_ARGUMENTS,
+                    new String[]{MODEL_BRIDGE_SCRIPT_PATH, "--token", token});
+            return context.startService(command) != null;
+        } catch (RuntimeException deniedOrUnavailable) {
+            return false;
+        }
     }
 
     /** True only when Android reports that the explicit Termux service was started. */

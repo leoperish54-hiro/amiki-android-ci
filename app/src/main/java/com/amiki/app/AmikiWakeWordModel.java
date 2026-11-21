@@ -109,14 +109,17 @@ final class AmikiWakeWordModel {
             throw new IOException("Could not create private model staging storage.");
         }
 
+        String bridgeToken = AmikiTermuxWakeWordBridge.token(context);
         try {
+            report(listener, 0, "Starting Termux and verifying its local wake-word model cache…");
+            AmikiTermuxWakeWordBridge.ensureRunning(context, bridgeToken);
             for (int index = 0; index < ASSETS.length; index++) {
                 Asset asset = ASSETS[index];
                 File destination = new File(staging, asset.name);
                 report(listener, index * 100 / ASSETS.length,
                         "Downloading local wake-word model (" + (index + 1)
                                 + " of " + ASSETS.length + ")…");
-                downloadAndVerify(asset, destination, index, listener);
+                downloadAndVerify(asset, destination, index, listener, bridgeToken);
             }
 
             report(listener, 98, "Installing the verified Hey Amiki keyword phrase…");
@@ -141,15 +144,17 @@ final class AmikiWakeWordModel {
             deleteRecursively(staging);
             if (!installed.exists() && backup.exists()) backup.renameTo(installed);
             throw failure;
+        } finally {
+            AmikiTermuxWakeWordBridge.stop(bridgeToken);
         }
     }
 
     private static void downloadAndVerify(
-            Asset asset, File destination, int index, ProgressListener listener) throws IOException {
+            Asset asset, File destination, int index, ProgressListener listener, String bridgeToken) throws IOException {
         DownloadAttemptException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
             try {
-                downloadAndVerifyOnce(asset, destination, index, listener);
+                downloadAndVerifyOnce(asset, destination, index, listener, bridgeToken);
                 return;
             } catch (DownloadAttemptException failure) {
                 lastFailure = failure;
@@ -187,28 +192,21 @@ final class AmikiWakeWordModel {
     }
 
     private static void downloadAndVerifyOnce(
-            Asset asset, File destination, int index, ProgressListener listener)
+            Asset asset, File destination, int index, ProgressListener listener, String bridgeToken)
             throws DownloadAttemptException {
         File temporary = new File(destination.getParentFile(), asset.name + ".part");
         HttpURLConnection connection = null;
         long received = 0L;
         int status = -1;
-        String host = "huggingface.co";
+        String host = "127.0.0.1";
         try {
-            connection = (HttpURLConnection) new URL(
-                    MODEL_BASE_URL + asset.name + "?download=true").openConnection();
-            connection.setInstanceFollowRedirects(true);
-            connection.setConnectTimeout(25000);
-            connection.setReadTimeout(90000);
-            connection.setUseCaches(false);
-            connection.setRequestProperty("User-Agent", "Amiki-Android/1.0");
-            connection.setRequestProperty("Accept", "application/octet-stream");
+            connection = AmikiTermuxWakeWordBridge.openAssetConnection(bridgeToken, asset.name);
             status = connection.getResponseCode();
             if (connection.getURL() != null && connection.getURL().getHost() != null) {
                 host = connection.getURL().getHost();
             }
-            // This is a fresh transfer, not a Range request. A 206 response is
-            // not accepted as a complete asset; final size/hash checks remain mandatory.
+            // The authenticated Termux bridge serves only its independently verified
+            // cache. Amiki still performs its own exact size and SHA-256 verification.
             if (status != HttpURLConnection.HTTP_OK) {
                 throw new IOException("Unexpected HTTP status " + status + ".");
             }
