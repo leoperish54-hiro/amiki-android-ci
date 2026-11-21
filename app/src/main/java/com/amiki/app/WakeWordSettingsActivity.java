@@ -27,6 +27,7 @@ public final class WakeWordSettingsActivity extends Activity {
     private TextView status;
     private Button installButton;
     private Button enableButton;
+    private Button manualInstallButton;
     private ProgressBar progress;
     private boolean pendingEnable;
 
@@ -63,9 +64,18 @@ public final class WakeWordSettingsActivity extends Activity {
                 14, 0xFFB7C2D9);
         root.addView(intro, withTop(intro, 14));
 
-        installButton = button("Install / repair local wake-word model");
-        installButton.setOnClickListener(v -> installModel());
+        installButton = button("Automatic install / repair");
+        installButton.setOnClickListener(v -> installModel(false));
         root.addView(installButton, withTop(installButton, 22));
+
+        manualInstallButton = button("Manual install through Termux");
+        manualInstallButton.setOnClickListener(v -> installModel(true));
+        root.addView(manualInstallButton, withTop(manualInstallButton, 8));
+
+        TextView installHelp = text(
+                "Automatic is the default. Manual mode opens a short-lived secure handoff; copy the displayed command into Termux. The token itself is never placed in the command.",
+                12, 0xFF8796AF);
+        root.addView(installHelp, withTop(installHelp, 6));
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -96,8 +106,9 @@ public final class WakeWordSettingsActivity extends Activity {
         setContentView(scroll);
     }
 
-    private void installModel() {
+    private void installModel(boolean manual) {
         installButton.setEnabled(false);
+        if (manualInstallButton != null) manualInstallButton.setEnabled(false);
         enableButton.setEnabled(false);
         progress.setVisibility(View.VISIBLE);
         progress.setProgress(0);
@@ -109,12 +120,13 @@ public final class WakeWordSettingsActivity extends Activity {
                     if (progress == null) return;
                     progress.setProgress(percentage);
                     status.setText(detail);
-                }));
+                }), manual, command -> main.post(() -> showManualLaunchDialog(command)));
                 AmikiWakeWordService.clearLegacyPicovoiceData(this);
                 main.post(() -> {
                     if (isFinishing()) return;
                     progress.setVisibility(View.GONE);
                     installButton.setEnabled(true);
+                    if (manualInstallButton != null) manualInstallButton.setEnabled(true);
                     enableButton.setEnabled(true);
                     status.setText("Hey Amiki's local model is installed and verified. No AccessKey is needed.");
                     refreshStatus();
@@ -125,6 +137,7 @@ public final class WakeWordSettingsActivity extends Activity {
                     if (isFinishing()) return;
                     progress.setVisibility(View.GONE);
                     installButton.setEnabled(true);
+                    if (manualInstallButton != null) manualInstallButton.setEnabled(true);
                     enableButton.setEnabled(true);
                     String detail = failure.getMessage();
                     if (detail == null || detail.trim().isEmpty()) {
@@ -134,6 +147,35 @@ public final class WakeWordSettingsActivity extends Activity {
                 });
             }
         });
+    }
+
+    private void showManualLaunchDialog(String command) {
+        if (isFinishing() || isDestroyed()) return;
+        TextView commandView = text(command, 13, 0xFFE9EEFF);
+        commandView.setTextIsSelectable(true);
+        commandView.setPadding(dp(12), dp(12), dp(12), dp(12));
+        commandView.setBackgroundColor(0xFF151D2D);
+        new AlertDialog.Builder(this)
+                .setTitle("Start the model bridge in Termux")
+                .setMessage("A temporary authenticated handoff is waiting. Copy this command, open Termux, paste it, and run it. The command contains only a short-lived socket locator—not your bridge token. Keep this screen available until the handoff completes.")
+                .setView(commandView)
+                .setPositiveButton("Copy & open Termux", (dialog, which) -> {
+                    android.content.ClipboardManager clipboard =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                                "Amiki manual model bridge command", command));
+                    }
+                    try {
+                        Intent launch = getPackageManager().getLaunchIntentForPackage("com.termux");
+                        if (launch != null) startActivity(launch);
+                        else status.setText("Termux launch screen is unavailable. Paste the copied command manually.");
+                    } catch (RuntimeException unavailable) {
+                        status.setText("Command copied. Open Termux manually and paste it.");
+                    }
+                })
+                .setNegativeButton("Keep waiting", null)
+                .show();
     }
 
     private void requestEnable() {
