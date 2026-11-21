@@ -13,6 +13,7 @@ final class TermuxBackendLauncher {
     static final String EXTRA_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR";
     static final String EXTRA_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND";
     static final String EXTRA_ARGUMENTS = "com.termux.RUN_COMMAND_ARGUMENTS";
+    static final String EXTRA_STDIN = "com.termux.RUN_COMMAND_STDIN";
     static final String PYTHON_PATH = "/data/data/com.termux/files/usr/bin/python";
     static final String MODEL_BRIDGE_SCRIPT_PATH =
             "/data/data/com.termux/files/home/astra_core/scripts/amiki_wake_word_model_bridge.py";
@@ -44,7 +45,8 @@ final class TermuxBackendLauncher {
             command.putExtra(EXTRA_WORKDIR, WORKING_DIRECTORY);
             command.putExtra(EXTRA_BACKGROUND, true);
             command.putExtra(EXTRA_ARGUMENTS,
-                    new String[]{MODEL_BRIDGE_SCRIPT_PATH, "--token", token});
+                    new String[]{MODEL_BRIDGE_SCRIPT_PATH, "--token-stdin"});
+            command.putExtra(EXTRA_STDIN, token);
             return context.startService(command) != null;
         } catch (RuntimeException deniedOrUnavailable) {
             return false;
