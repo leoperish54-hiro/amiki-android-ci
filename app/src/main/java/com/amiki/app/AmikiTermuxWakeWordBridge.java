@@ -13,7 +13,7 @@ import java.util.Locale;
 final class AmikiTermuxWakeWordBridge {
     private static final String PREFS = "amiki_termux_wake_word_bridge";
     private static final String TOKEN_KEY = "bridge_token";
-    private static final String BASE_URL = "http://127.0.0.1:8765";
+    private static final String BASE_URL = "http://127.0.0.1:8766";
     private static final int CONNECT_TIMEOUT_MS = 1500;
     private static final int READ_TIMEOUT_MS = 2500;
     private static final long STARTUP_TIMEOUT_MS = 240_000L;
