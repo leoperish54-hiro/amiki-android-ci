@@ -46,7 +46,13 @@ final class AmikiTermuxWakeWordBridge {
     }
 
     static void ensureRunning(Context context, String token) throws IOException {
-        if (isHealthy(token)) return;
+        // A refused connection is the expected state before the bridge is launched.
+        // Only return early when the authenticated health probe succeeds.
+        try {
+            if (isHealthy(token)) return;
+        } catch (IOException bridgeNotRunning) {
+            // Continue into the authenticated Termux launch and token handoff.
+        }
 
         String socketName = bootstrapSocketName();
         try (LocalServerSocket server = new LocalServerSocket(socketName)) {
