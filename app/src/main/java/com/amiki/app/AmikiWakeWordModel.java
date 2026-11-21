@@ -144,6 +144,8 @@ final class AmikiWakeWordModel {
             deleteRecursively(staging);
             if (!installed.exists() && backup.exists()) backup.renameTo(installed);
             throw failure;
+        } finally {
+            AmikiTermuxWakeWordBridge.stop(bridgeToken);
         }
     }
 
