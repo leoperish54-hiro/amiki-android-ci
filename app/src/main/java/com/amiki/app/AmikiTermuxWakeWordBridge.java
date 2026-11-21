@@ -16,7 +16,7 @@ final class AmikiTermuxWakeWordBridge {
     private static final String BASE_URL = "http://127.0.0.1:8766";
     private static final int CONNECT_TIMEOUT_MS = 1500;
     private static final int READ_TIMEOUT_MS = 2500;
-    private static final long STARTUP_TIMEOUT_MS = 240_000L;
+    private static final long STARTUP_TIMEOUT_MS = 1_320_000L;
 
     private AmikiTermuxWakeWordBridge() { }
 
@@ -64,7 +64,7 @@ final class AmikiTermuxWakeWordBridge {
             }
         }
         throw new IOException(
-                "Termux did not finish verifying the wake-word model within four minutes.",
+                "Termux did not finish verifying the wake-word model within 22 minutes.",
                 lastFailure);
     }
 
