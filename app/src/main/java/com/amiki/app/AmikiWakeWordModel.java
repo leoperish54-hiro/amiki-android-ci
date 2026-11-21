@@ -92,6 +92,12 @@ final class AmikiWakeWordModel {
     }
 
     static void install(Context context, ProgressListener listener) throws IOException {
+        install(context, listener, false, null);
+    }
+
+    static void install(
+            Context context, ProgressListener listener, boolean manual,
+            AmikiTermuxWakeWordBridge.ManualLaunchListener manualListener) throws IOException {
         if (context == null) throw new IllegalArgumentException("A context is required.");
         if (isInstalled(context)) {
             report(listener, 100, "Local wake-word model is already verified.");
@@ -112,7 +118,8 @@ final class AmikiWakeWordModel {
         String bridgeToken = AmikiTermuxWakeWordBridge.token(context);
         try {
             report(listener, 0, "Starting Termux and verifying its local wake-word model cache…");
-            AmikiTermuxWakeWordBridge.ensureRunning(context, bridgeToken);
+            AmikiTermuxWakeWordBridge.ensureRunning(
+                    context, bridgeToken, manual, manualListener);
             for (int index = 0; index < ASSETS.length; index++) {
                 Asset asset = ASSETS[index];
                 File destination = new File(staging, asset.name);
