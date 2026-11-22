@@ -120,7 +120,8 @@ public final class WakeWordSettingsActivity extends Activity {
                     if (progress == null) return;
                     progress.setProgress(percentage);
                     status.setText(detail);
-                }), manual, command -> main.post(() -> showManualLaunchDialog(command)));
+                }), manual, (command, cancelSession) ->
+                        main.post(() -> showManualLaunchDialog(command, cancelSession)));
                 AmikiWakeWordService.clearLegacyPicovoiceData(this);
                 main.post(() -> {
                     if (isFinishing()) return;
@@ -149,7 +150,7 @@ public final class WakeWordSettingsActivity extends Activity {
         });
     }
 
-    private void showManualLaunchDialog(String command) {
+    private void showManualLaunchDialog(String command, Runnable cancelSession) {
         if (isFinishing() || isDestroyed()) return;
         TextView commandView = text(command, 13, 0xFFE9EEFF);
         commandView.setTextIsSelectable(true);
@@ -176,7 +177,8 @@ public final class WakeWordSettingsActivity extends Activity {
                 })
                 .setNegativeButton("Keep waiting", null)
                 .setNeutralButton("Cancel session", (dialog, which) -> {
-                    status.setText("Manual handoff cancellation requested.");
+                    cancelSession.run();
+                    status.setText("Manual handoff cancelled. You can start a new session when ready.");
                 })
                 .show();
     }
