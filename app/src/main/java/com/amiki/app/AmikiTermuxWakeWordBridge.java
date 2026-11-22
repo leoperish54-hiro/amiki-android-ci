@@ -2,8 +2,6 @@ package com.amiki.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -78,14 +76,6 @@ final class AmikiTermuxWakeWordBridge {
     private static void handoffTokenToTermux(
             Context context, ServerSocket server, String token,
             boolean manual, ManualLaunchListener listener) throws IOException {
-        final int expectedUid;
-        try {
-            expectedUid = context.getPackageManager()
-                    .getApplicationInfo(TermuxBackendLauncher.PACKAGE_NAME, 0).uid;
-        } catch (PackageManager.NameNotFoundException missingTermux) {
-            throw new IOException("Termux is not installed.", missingTermux);
-        }
-
         String session = handoffSession();
         AtomicBoolean delivered = new AtomicBoolean(false);
         AtomicBoolean cancelled = new AtomicBoolean(false);
