@@ -87,7 +87,13 @@ final class AmikiTermuxWakeWordBridge {
                     peer.setSoTimeout(10_000);
                     BufferedReader input = new BufferedReader(new InputStreamReader(
                             peer.getInputStream(), StandardCharsets.US_ASCII));
-                    String supplied = input.readLine();
+                    String supplied;
+                    try {
+                        supplied = input.readLine();
+                    } catch (IOException malformedPeer) {
+                        rejectedPeers++;
+                        continue;
+                    }
                     if (!constantTimeEquals(session, supplied)) {
                         rejectedPeers++;
                         continue;
