@@ -81,8 +81,7 @@ final class AmikiTermuxWakeWordBridge {
         AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicReference<IOException> failure = new AtomicReference<>();
         Thread acceptor = new Thread(() -> {
-            int rejectedPeers = 0;
-            while (!delivered.get() && !cancelled.get() && rejectedPeers < 64) {
+            while (!delivered.get() && !cancelled.get()) {
                 try (Socket peer = server.accept()) {
                     peer.setSoTimeout(10_000);
                     BufferedReader input = new BufferedReader(new InputStreamReader(
@@ -91,11 +90,9 @@ final class AmikiTermuxWakeWordBridge {
                     try {
                         supplied = input.readLine();
                     } catch (IOException malformedPeer) {
-                        rejectedPeers++;
                         continue;
                     }
                     if (!constantTimeEquals(session, supplied)) {
-                        rejectedPeers++;
                         continue;
                     }
                     OutputStream output = peer.getOutputStream();
@@ -107,10 +104,6 @@ final class AmikiTermuxWakeWordBridge {
                     if (!cancelled.get()) failure.set(error);
                     return;
                 }
-            }
-            if (!delivered.get() && !cancelled.get()) {
-                failure.set(new IOException(
-                        "Too many invalid local handoff attempts were received."));
             }
         }, "AmikiTermuxWakeWordTokenHandoff");
         acceptor.setDaemon(true);
