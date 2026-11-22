@@ -2,9 +2,8 @@ package com.amiki.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
@@ -77,6 +76,8 @@ final class AmikiTermuxWakeWordBridge {
             Context context, ServerSocket server, String token,
             boolean manual, ManualLaunchListener listener) throws IOException {
         String session = handoffSession();
+        byte[] expectedChallenge =
+                (session + "\n").getBytes(StandardCharsets.US_ASCII);
         AtomicBoolean delivered = new AtomicBoolean(false);
         AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicReference<IOException> failure = new AtomicReference<>();
@@ -84,15 +85,19 @@ final class AmikiTermuxWakeWordBridge {
             while (!delivered.get() && !cancelled.get()) {
                 try (Socket peer = server.accept()) {
                     peer.setSoTimeout(10_000);
-                    BufferedReader input = new BufferedReader(new InputStreamReader(
-                            peer.getInputStream(), StandardCharsets.US_ASCII));
-                    String supplied;
+                    byte[] supplied = new byte[expectedChallenge.length];
                     try {
-                        supplied = input.readLine();
+                        InputStream input = peer.getInputStream();
+                        int offset = 0;
+                        while (offset < supplied.length) {
+                            int count = input.read(supplied, offset, supplied.length - offset);
+                            if (count < 0) throw new IOException("Incomplete handoff challenge.");
+                            offset += count;
+                        }
                     } catch (IOException malformedPeer) {
                         continue;
                     }
-                    if (!constantTimeEquals(session, supplied)) {
+                    if (!MessageDigest.isEqual(expectedChallenge, supplied)) {
                         continue;
                     }
                     OutputStream output = peer.getOutputStream();
@@ -161,13 +166,6 @@ final class AmikiTermuxWakeWordBridge {
             throw new IOException(
                     "Termux could not complete the authenticated local token handoff.", cause);
         }
-    }
-
-    private static boolean constantTimeEquals(String expected, String supplied) {
-        if (supplied == null) return false;
-        return MessageDigest.isEqual(
-                expected.getBytes(StandardCharsets.US_ASCII),
-                supplied.getBytes(StandardCharsets.US_ASCII));
     }
 
     private static String handoffSession() {
