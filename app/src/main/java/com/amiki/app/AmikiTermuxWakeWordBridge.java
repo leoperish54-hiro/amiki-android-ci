@@ -2,16 +2,17 @@ package com.amiki.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
-import android.net.Credentials;
-import android.net.LocalServerSocket;
-import android.net.LocalSocket;
-
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -25,12 +26,11 @@ final class AmikiTermuxWakeWordBridge {
     private static final int CONNECT_TIMEOUT_MS = 1500;
     private static final int READ_TIMEOUT_MS = 2500;
     private static final long TOKEN_HANDOFF_TIMEOUT_MS = 30_000L;
-    private static final long MANUAL_HANDOFF_TIMEOUT_MS = 300_000L;
+    private static final long STARTUP_TIMEOUT_MS = 1_320_000L;
 
     interface ManualLaunchListener {
-        void onCommandReady(String command);
+        void onCommandReady(String command, Runnable cancelSession);
     }
-    private static final long STARTUP_TIMEOUT_MS = 1_320_000L;
 
     private AmikiTermuxWakeWordBridge() { }
 
@@ -57,41 +57,47 @@ final class AmikiTermuxWakeWordBridge {
     static void ensureRunning(
             Context context, String token, boolean manual, ManualLaunchListener listener)
             throws IOException {
-        // A refused connection is the expected state before the bridge is launched.
-        // Only return early when the authenticated health probe succeeds.
         try {
             if (isHealthy(token)) return;
         } catch (IOException bridgeNotRunning) {
             // Continue into the authenticated Termux launch and token handoff.
         }
 
-        String socketName = bootstrapSocketName();
-        try (LocalServerSocket server = new LocalServerSocket(socketName)) {
-            handoffTokenToTermux(context, server, socketName, token, manual, listener);
+        try (ServerSocket server = new ServerSocket()) {
+            server.setReuseAddress(false);
+            server.bind(new InetSocketAddress(
+                    InetAddress.getByName("127.0.0.1"), 0), 4);
+            handoffTokenToTermux(context, server, token, manual, listener);
         }
         awaitHealthy(token);
     }
 
     private static void handoffTokenToTermux(
-            Context context, LocalServerSocket server, String socketName, String token,
+            Context context, ServerSocket server, String token,
             boolean manual, ManualLaunchListener listener) throws IOException {
-        final int expectedUid;
-        try {
-            expectedUid = context.getPackageManager()
-                    .getApplicationInfo(TermuxBackendLauncher.PACKAGE_NAME, 0).uid;
-        } catch (PackageManager.NameNotFoundException missingTermux) {
-            throw new IOException("Termux is not installed.", missingTermux);
-        }
-
+        String session = handoffSession();
+        byte[] expectedChallenge =
+                (session + "\n").getBytes(StandardCharsets.US_ASCII);
         AtomicBoolean delivered = new AtomicBoolean(false);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicReference<IOException> failure = new AtomicReference<>();
         Thread acceptor = new Thread(() -> {
-            int rejectedPeers = 0;
-            while (!delivered.get() && rejectedPeers < 16) {
-                try (LocalSocket peer = server.accept()) {
-                    Credentials credentials = peer.getPeerCredentials();
-                    if (credentials == null || credentials.getUid() != expectedUid) {
-                        rejectedPeers++;
+            while (!delivered.get() && !cancelled.get()) {
+                try (Socket peer = server.accept()) {
+                    peer.setSoTimeout(10_000);
+                    byte[] supplied = new byte[expectedChallenge.length];
+                    try {
+                        InputStream input = peer.getInputStream();
+                        int offset = 0;
+                        while (offset < supplied.length) {
+                            int count = input.read(supplied, offset, supplied.length - offset);
+                            if (count < 0) throw new IOException("Incomplete handoff challenge.");
+                            offset += count;
+                        }
+                    } catch (IOException malformedPeer) {
+                        continue;
+                    }
+                    if (!MessageDigest.isEqual(expectedChallenge, supplied)) {
                         continue;
                     }
                     OutputStream output = peer.getOutputStream();
@@ -100,28 +106,35 @@ final class AmikiTermuxWakeWordBridge {
                     delivered.set(true);
                     return;
                 } catch (IOException error) {
-                    failure.set(error);
+                    if (!cancelled.get()) failure.set(error);
                     return;
                 }
-            }
-            if (!delivered.get()) {
-                failure.set(new IOException(
-                        "Too many non-Termux processes attempted the token handoff."));
             }
         }, "AmikiTermuxWakeWordTokenHandoff");
         acceptor.setDaemon(true);
         acceptor.start();
 
+        Runnable cancel = () -> {
+            cancelled.set(true);
+            try {
+                server.close();
+            } catch (IOException ignored) {
+                // Closing the listener releases the blocking accept call.
+            }
+        };
+
         if (manual) {
             if (listener == null) {
-                closeQuietly(server);
+                cancel.run();
                 throw new IOException("Manual Termux launch instructions are unavailable.");
             }
             String command = "python \"$HOME/astra_core/scripts/amiki_wake_word_model_bridge.py\""
-                    + " --token-socket " + socketName;
-            listener.onCommandReady(command);
-        } else if (!TermuxBackendLauncher.startWakeWordModelBridge(context, socketName)) {
-            closeQuietly(server);
+                    + " --token-handoff-port " + server.getLocalPort()
+                    + " --token-handoff-session " + session;
+            listener.onCommandReady(command, cancel);
+        } else if (!TermuxBackendLauncher.startWakeWordModelBridge(
+                context, server.getLocalPort(), session)) {
+            cancel.run();
             joinQuietly(acceptor);
             throw new IOException(
                     "Could not start the Termux model bridge. Check that Termux is installed, "
@@ -129,22 +142,45 @@ final class AmikiTermuxWakeWordBridge {
         }
 
         try {
-            acceptor.join(manual ? MANUAL_HANDOFF_TIMEOUT_MS : TOKEN_HANDOFF_TIMEOUT_MS);
+            if (manual) {
+                // Manual handoff does not expire. It remains available until Termux
+                // completes the one-use challenge or the owner explicitly cancels it.
+                acceptor.join();
+            } else {
+                acceptor.join(TOKEN_HANDOFF_TIMEOUT_MS);
+            }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            closeQuietly(server);
+            cancel.run();
             throw new IOException("Termux token handoff was interrupted.", interrupted);
         }
-        if (acceptor.isAlive()) {
-            closeQuietly(server);
-            throw new IOException(manual
-                    ? "Manual Termux launch timed out. Return to Hey Amiki and retry installation."
-                    : "Termux did not connect to Amiki's local bootstrap socket.");
-        }
         if (!delivered.get()) {
+            if (cancelled.get()) {
+                throw new IOException("Manual Termux handoff was cancelled.");
+            }
+            if (acceptor.isAlive()) {
+                cancel.run();
+                throw new IOException("Termux did not connect to Amiki's local handoff server.");
+            }
             IOException cause = failure.get();
             throw new IOException(
                     "Termux could not complete the authenticated local token handoff.", cause);
+        }
+    }
+
+    private static String handoffSession() {
+        byte[] bytes = new byte[32];
+        new SecureRandom().nextBytes(bytes);
+        StringBuilder value = new StringBuilder(64);
+        for (byte item : bytes) value.append(String.format(Locale.ROOT, "%02x", item & 0xff));
+        return value.toString();
+    }
+
+    private static void joinQuietly(Thread thread) {
+        try {
+            thread.join(1000L);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -171,30 +207,6 @@ final class AmikiTermuxWakeWordBridge {
         throw new IOException(
                 "Termux did not finish verifying the wake-word model within 22 minutes.",
                 lastFailure);
-    }
-
-    private static String bootstrapSocketName() {
-        byte[] bytes = new byte[16];
-        new SecureRandom().nextBytes(bytes);
-        StringBuilder value = new StringBuilder("amiki-wake-word-");
-        for (byte item : bytes) value.append(String.format(Locale.ROOT, "%02x", item & 0xff));
-        return value.toString();
-    }
-
-    private static void closeQuietly(LocalServerSocket server) {
-        try {
-            server.close();
-        } catch (IOException ignored) {
-            // The acceptor is being stopped; no further action is required.
-        }
-    }
-
-    private static void joinQuietly(Thread thread) {
-        try {
-            thread.join(1000L);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     static HttpURLConnection openAssetConnection(String token, String assetName)

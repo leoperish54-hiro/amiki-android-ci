@@ -73,7 +73,7 @@ public final class WakeWordSettingsActivity extends Activity {
         root.addView(manualInstallButton, withTop(manualInstallButton, 8));
 
         TextView installHelp = text(
-                "Automatic is the default. Manual mode opens a short-lived secure handoff; copy the displayed command into Termux. The token itself is never placed in the command.",
+                "Automatic is the default. Manual mode opens a persistent, one-use secure handoff. It stays available until Termux connects or you cancel it; there is no time-based expiry. The bridge token itself is never placed in the command.",
                 12, 0xFF8796AF);
         root.addView(installHelp, withTop(installHelp, 6));
 
@@ -120,7 +120,8 @@ public final class WakeWordSettingsActivity extends Activity {
                     if (progress == null) return;
                     progress.setProgress(percentage);
                     status.setText(detail);
-                }), manual, command -> main.post(() -> showManualLaunchDialog(command)));
+                }), manual, (command, cancelSession) ->
+                        main.post(() -> showManualLaunchDialog(command, cancelSession)));
                 AmikiWakeWordService.clearLegacyPicovoiceData(this);
                 main.post(() -> {
                     if (isFinishing()) return;
@@ -149,7 +150,7 @@ public final class WakeWordSettingsActivity extends Activity {
         });
     }
 
-    private void showManualLaunchDialog(String command) {
+    private void showManualLaunchDialog(String command, Runnable cancelSession) {
         if (isFinishing() || isDestroyed()) return;
         TextView commandView = text(command, 13, 0xFFE9EEFF);
         commandView.setTextIsSelectable(true);
@@ -157,7 +158,7 @@ public final class WakeWordSettingsActivity extends Activity {
         commandView.setBackgroundColor(0xFF151D2D);
         new AlertDialog.Builder(this)
                 .setTitle("Start the model bridge in Termux")
-                .setMessage("A temporary authenticated handoff is waiting. Copy this command, open Termux, paste it, and run it. The command contains only a short-lived socket locator—not your bridge token. Keep this screen available until the handoff completes.")
+                .setMessage("A persistent authenticated handoff is waiting. Copy this command, open Termux, paste it, and run it. The command contains a one-use local session challenge—not your bridge token. The session does not expire by time; cancel it here if you no longer need it.")
                 .setView(commandView)
                 .setPositiveButton("Copy & open Termux", (dialog, which) -> {
                     android.content.ClipboardManager clipboard =
@@ -175,6 +176,10 @@ public final class WakeWordSettingsActivity extends Activity {
                     }
                 })
                 .setNegativeButton("Keep waiting", null)
+                .setNeutralButton("Cancel session", (dialog, which) -> {
+                    cancelSession.run();
+                    status.setText("Manual handoff cancelled. You can start a new session when ready.");
+                })
                 .show();
     }
 
