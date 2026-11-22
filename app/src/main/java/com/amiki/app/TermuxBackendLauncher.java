@@ -35,7 +35,7 @@ final class TermuxBackendLauncher {
         return command;
     }
 
-    static boolean startWakeWordModelBridge(Context context, String socketName) {
+    static boolean startWakeWordModelBridge(Context context, int handoffPort, String session) {
         try {
             Intent command = new Intent();
             command.setClassName(PACKAGE_NAME, SERVICE_CLASS);
@@ -43,10 +43,12 @@ final class TermuxBackendLauncher {
             command.putExtra(EXTRA_PATH, PYTHON_PATH);
             command.putExtra(EXTRA_WORKDIR, WORKING_DIRECTORY);
             command.putExtra(EXTRA_BACKGROUND, true);
-            command.putExtra(EXTRA_ARGUMENTS,
-                    new String[]{MODEL_BRIDGE_SCRIPT_PATH, "--token-socket", socketName});
-            // The socket name is a locator, not a credential; the token is delivered
-            // only after the Android peer authenticates Termux by its kernel UID.
+            command.putExtra(EXTRA_ARGUMENTS, new String[]{
+                    MODEL_BRIDGE_SCRIPT_PATH,
+                    "--token-handoff-port", Integer.toString(handoffPort),
+                    "--token-handoff-session", session
+            });
+            // The one-use session challenge is not the persistent bridge bearer token.
             return context.startService(command) != null;
         } catch (RuntimeException deniedOrUnavailable) {
             return false;
