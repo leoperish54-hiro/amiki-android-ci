@@ -88,12 +88,12 @@ public final class WakeWordSettingsActivity extends Activity {
         installButton.setOnClickListener(v -> installModel(false));
         root.addView(installButton, withTop(installButton, 22));
 
-        manualInstallButton = button("Manual install through Termux");
+        manualInstallButton = button("Manual fallback (keep Amiki open)");
         manualInstallButton.setOnClickListener(v -> installModel(true));
         root.addView(manualInstallButton, withTop(manualInstallButton, 8));
 
         TextView installHelp = text(
-                "Automatic is the default. Manual mode opens a persistent, one-use secure handoff. It stays available until Termux connects or you cancel it; there is no time-based expiry. The bridge token itself is never placed in the command.",
+                "Automatic mode runs in Amiki’s foreground provisioning service and survives closing this screen or Termux. Manual fallback uses an Activity-owned handoff; keep this screen open until Termux connects. Its one-use challenge does not expire by time, and the bridge token is never placed in the command.",
                 12, 0xFF8796AF);
         root.addView(installHelp, withTop(installHelp, 6));
 
