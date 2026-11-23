@@ -145,6 +145,14 @@
                 android:value="Bounded, user-invoked voice assistant requests and local microphone voice-activity monitoring only while Amiki is speaking; no ambient standby microphone monitoring." />
         </service>
         <service
+            android:name=".AmikiWakeWordProvisioningService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Owner-initiated wake-word model download, integrity verification, and bounded recovery of the Termux provisioning worker." />
+        </service>
+        <service
             android:name=".SentinelService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
