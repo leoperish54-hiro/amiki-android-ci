@@ -30,6 +30,26 @@ public final class WakeWordSettingsActivity extends Activity {
     private Button manualInstallButton;
     private ProgressBar progress;
     private boolean pendingEnable;
+    private final Runnable provisioningPoll = new Runnable() {
+        @Override public void run() {
+            if (status == null || isFinishing() || isDestroyed()) return;
+            String state = AmikiWakeWordProvisioningService.state(WakeWordSettingsActivity.this);
+            progress.setVisibility(AmikiWakeWordProvisioningService.isActive(
+                    WakeWordSettingsActivity.this) ? View.VISIBLE : View.GONE);
+            progress.setProgress(AmikiWakeWordProvisioningService.progress(
+                    WakeWordSettingsActivity.this));
+            status.setText("Provisioning: " + state + "\n"
+                    + AmikiWakeWordProvisioningService.detail(WakeWordSettingsActivity.this));
+            boolean active = AmikiWakeWordProvisioningService.isActive(
+                    WakeWordSettingsActivity.this);
+            installButton.setEnabled(!active);
+            if (manualInstallButton != null) manualInstallButton.setEnabled(!active);
+            enableButton.setEnabled(!active && AmikiWakeWordService.isConfigured(
+                    WakeWordSettingsActivity.this));
+            if (active) main.postDelayed(this, 1000L);
+            else refreshStatus();
+        }
+    };
 
     private static final int REQUEST_AUDIO = 8201;
     private static final int REQUEST_NOTIFICATIONS = 8202;
@@ -68,12 +88,12 @@ public final class WakeWordSettingsActivity extends Activity {
         installButton.setOnClickListener(v -> installModel(false));
         root.addView(installButton, withTop(installButton, 22));
 
-        manualInstallButton = button("Manual install through Termux");
+        manualInstallButton = button("Manual fallback (keep Amiki open)");
         manualInstallButton.setOnClickListener(v -> installModel(true));
         root.addView(manualInstallButton, withTop(manualInstallButton, 8));
 
         TextView installHelp = text(
-                "Automatic is the default. Manual mode opens a short-lived secure handoff; copy the displayed command into Termux. The token itself is never placed in the command.",
+                "Automatic mode runs in Amiki’s foreground provisioning service and survives closing this screen or Termux. Manual fallback uses an Activity-owned handoff; keep this screen open until Termux connects. Its one-use challenge does not expire by time, and the bridge token is never placed in the command.",
                 12, 0xFF8796AF);
         root.addView(installHelp, withTop(installHelp, 6));
 
@@ -107,6 +127,25 @@ public final class WakeWordSettingsActivity extends Activity {
     }
 
     private void installModel(boolean manual) {
+        if (!manual) {
+            installButton.setEnabled(false);
+            if (manualInstallButton != null) manualInstallButton.setEnabled(false);
+            enableButton.setEnabled(false);
+            progress.setVisibility(View.VISIBLE);
+            progress.setProgress(0);
+            status.setText("Starting Amiki-owned provisioning. You can leave this screen or close Termux.");
+            try {
+                AmikiWakeWordProvisioningService.start(this);
+                main.removeCallbacks(provisioningPoll);
+                main.post(provisioningPoll);
+            } catch (RuntimeException failure) {
+                installButton.setEnabled(true);
+                if (manualInstallButton != null) manualInstallButton.setEnabled(true);
+                progress.setVisibility(View.GONE);
+                status.setText("Could not start Amiki's provisioning service: " + failure.getMessage());
+            }
+            return;
+        }
         installButton.setEnabled(false);
         if (manualInstallButton != null) manualInstallButton.setEnabled(false);
         enableButton.setEnabled(false);
@@ -120,7 +159,8 @@ public final class WakeWordSettingsActivity extends Activity {
                     if (progress == null) return;
                     progress.setProgress(percentage);
                     status.setText(detail);
-                }), manual, command -> main.post(() -> showManualLaunchDialog(command)));
+                }), manual, (command, cancelSession) ->
+                        main.post(() -> showManualLaunchDialog(command, cancelSession)));
                 AmikiWakeWordService.clearLegacyPicovoiceData(this);
                 main.post(() -> {
                     if (isFinishing()) return;
@@ -149,7 +189,7 @@ public final class WakeWordSettingsActivity extends Activity {
         });
     }
 
-    private void showManualLaunchDialog(String command) {
+    private void showManualLaunchDialog(String command, Runnable cancelSession) {
         if (isFinishing() || isDestroyed()) return;
         TextView commandView = text(command, 13, 0xFFE9EEFF);
         commandView.setTextIsSelectable(true);
@@ -157,7 +197,7 @@ public final class WakeWordSettingsActivity extends Activity {
         commandView.setBackgroundColor(0xFF151D2D);
         new AlertDialog.Builder(this)
                 .setTitle("Start the model bridge in Termux")
-                .setMessage("A temporary authenticated handoff is waiting. Copy this command, open Termux, paste it, and run it. The command contains only a short-lived socket locator—not your bridge token. Keep this screen available until the handoff completes.")
+                .setMessage("A persistent authenticated handoff is waiting. Copy this command, open Termux, paste it, and run it. The command contains a one-use local session challenge—not your bridge token. The session does not expire by time; cancel it here if you no longer need it.")
                 .setView(commandView)
                 .setPositiveButton("Copy & open Termux", (dialog, which) -> {
                     android.content.ClipboardManager clipboard =
@@ -175,6 +215,10 @@ public final class WakeWordSettingsActivity extends Activity {
                     }
                 })
                 .setNegativeButton("Keep waiting", null)
+                .setNeutralButton("Cancel session", (dialog, which) -> {
+                    cancelSession.run();
+                    status.setText("Manual handoff cancelled. You can start a new session when ready.");
+                })
                 .show();
     }
 
@@ -249,6 +293,11 @@ public final class WakeWordSettingsActivity extends Activity {
 
     private void refreshStatus() {
         if (status == null) return;
+        if (AmikiWakeWordProvisioningService.isActive(this)) {
+            main.removeCallbacks(provisioningPoll);
+            main.post(provisioningPoll);
+            return;
+        }
         boolean modelReady = AmikiWakeWordService.isConfigured(this);
         boolean serviceReady = AmikiVoiceInteractionService.isSystemActive();
         String state = AmikiWakeWordService.isListening()
