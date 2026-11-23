@@ -48,7 +48,7 @@ public final class AmikiWakeWordProvisioningService extends Service {
     public static void start(Context context) {
         SharedPreferences prefs = preferences(context);
         if (!isActive(context)) {
-            prefs.edit().putString(KEY_SESSION_ID, UUID.randomUUID().toString()).apply();
+            if (!prefs.edit().putString(KEY_SESSION_ID, UUID.randomUUID().toString()).commit()) {\n                throw new IllegalStateException("Could not persist the wake-word provisioning session ID.");\n            }
         }
         Intent intent = new Intent(context, AmikiWakeWordProvisioningService.class)
                 .setAction(ACTION_START);
