@@ -30,6 +30,26 @@ public final class WakeWordSettingsActivity extends Activity {
     private Button manualInstallButton;
     private ProgressBar progress;
     private boolean pendingEnable;
+    private final Runnable provisioningPoll = new Runnable() {
+        @Override public void run() {
+            if (status == null || isFinishing() || isDestroyed()) return;
+            String state = AmikiWakeWordProvisioningService.state(WakeWordSettingsActivity.this);
+            progress.setVisibility(AmikiWakeWordProvisioningService.isActive(
+                    WakeWordSettingsActivity.this) ? View.VISIBLE : View.GONE);
+            progress.setProgress(AmikiWakeWordProvisioningService.progress(
+                    WakeWordSettingsActivity.this));
+            status.setText("Provisioning: " + state + "\\n"
+                    + AmikiWakeWordProvisioningService.detail(WakeWordSettingsActivity.this));
+            boolean active = AmikiWakeWordProvisioningService.isActive(
+                    WakeWordSettingsActivity.this);
+            installButton.setEnabled(!active);
+            if (manualInstallButton != null) manualInstallButton.setEnabled(!active);
+            enableButton.setEnabled(!active && AmikiWakeWordService.isConfigured(
+                    WakeWordSettingsActivity.this));
+            if (active) main.postDelayed(this, 1000L);
+            else refreshStatus();
+        }
+    };
 
     private static final int REQUEST_AUDIO = 8201;
     private static final int REQUEST_NOTIFICATIONS = 8202;
@@ -107,6 +127,25 @@ public final class WakeWordSettingsActivity extends Activity {
     }
 
     private void installModel(boolean manual) {
+        if (!manual) {
+            installButton.setEnabled(false);
+            if (manualInstallButton != null) manualInstallButton.setEnabled(false);
+            enableButton.setEnabled(false);
+            progress.setVisibility(View.VISIBLE);
+            progress.setProgress(0);
+            status.setText("Starting Amiki-owned provisioning. You can leave this screen or close Termux.");
+            try {
+                AmikiWakeWordProvisioningService.start(this);
+                main.removeCallbacks(provisioningPoll);
+                main.post(provisioningPoll);
+            } catch (RuntimeException failure) {
+                installButton.setEnabled(true);
+                if (manualInstallButton != null) manualInstallButton.setEnabled(true);
+                progress.setVisibility(View.GONE);
+                status.setText("Could not start Amiki's provisioning service: " + failure.getMessage());
+            }
+            return;
+        }
         installButton.setEnabled(false);
         if (manualInstallButton != null) manualInstallButton.setEnabled(false);
         enableButton.setEnabled(false);
@@ -254,6 +293,11 @@ public final class WakeWordSettingsActivity extends Activity {
 
     private void refreshStatus() {
         if (status == null) return;
+        if (AmikiWakeWordProvisioningService.isActive(this)) {
+            main.removeCallbacks(provisioningPoll);
+            main.post(provisioningPoll);
+            return;
+        }
         boolean modelReady = AmikiWakeWordService.isConfigured(this);
         boolean serviceReady = AmikiVoiceInteractionService.isSystemActive();
         String state = AmikiWakeWordService.isListening()
