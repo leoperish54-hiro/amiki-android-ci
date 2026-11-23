@@ -105,7 +105,7 @@ public final class AmikiWakeWordProvisioningService extends Service {
                 .putInt(KEY_PROGRESS, boundedProgress)
                 .putString(KEY_DETAIL, safeDetail)
                 .putLong(KEY_UPDATED, System.currentTimeMillis())
-                .apply();
+                .commit();
         // Avoid notifying Android for every 16 KiB transfer chunk. Progress is
         // persisted at integer-percent checkpoints; notifications update at 5% steps.
         if (!state.equals(lastNotifiedState)
