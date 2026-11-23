@@ -38,7 +38,7 @@ public final class WakeWordSettingsActivity extends Activity {
                     WakeWordSettingsActivity.this) ? View.VISIBLE : View.GONE);
             progress.setProgress(AmikiWakeWordProvisioningService.progress(
                     WakeWordSettingsActivity.this));
-            status.setText("Provisioning: " + state + "\\n"
+            status.setText("Provisioning: " + state + "\n"
                     + AmikiWakeWordProvisioningService.detail(WakeWordSettingsActivity.this));
             boolean active = AmikiWakeWordProvisioningService.isActive(
                     WakeWordSettingsActivity.this);
