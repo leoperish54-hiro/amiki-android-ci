@@ -109,8 +109,8 @@ final class AmikiWakeWordModel {
         File installed = modelDirectory(context);
         File backup = new File(parent, MODEL_DIRECTORY + ".previous");
 
-        deleteRecursively(staging);
-        deleteRecursively(backup);
+        // Keep verified assets from earlier attempts. Only incomplete or corrupt
+        // files are discarded, so an interrupted session resumes at asset boundaries.
         if (!staging.mkdirs() && !staging.isDirectory()) {
             throw new IOException("Could not create private model staging storage.");
         }
@@ -126,7 +126,8 @@ final class AmikiWakeWordModel {
                 report(listener, index * 100 / ASSETS.length,
                         "Downloading local wake-word model (" + (index + 1)
                                 + " of " + ASSETS.length + ")…");
-                downloadAndVerify(asset, destination, index, listener, bridgeToken);
+                downloadAndVerify(context, asset, destination, index, listener,
+                        bridgeToken, manual, manualListener);
             }
 
             report(listener, 98, "Installing the verified Hey Amiki keyword phrase…");
@@ -146,21 +147,35 @@ final class AmikiWakeWordModel {
                 throw new IOException("Installed wake-word model failed final integrity checks.");
             }
             deleteRecursively(backup);
+            AmikiTermuxWakeWordBridge.stop(bridgeToken);
             report(listener, 100, "Hey Amiki's local wake-word model is installed and verified.");
         } catch (IOException | RuntimeException failure) {
-            deleteRecursively(staging);
+            // Preserve verified staging assets and the live Termux worker. The
+            // provisioning supervisor can relaunch/retry without starting over.
             if (!installed.exists() && backup.exists()) backup.renameTo(installed);
             throw failure;
-        } finally {
-            AmikiTermuxWakeWordBridge.stop(bridgeToken);
         }
     }
 
     private static void downloadAndVerify(
-            Asset asset, File destination, int index, ProgressListener listener, String bridgeToken) throws IOException {
+            Context context, Asset asset, File destination, int index,
+            ProgressListener listener, String bridgeToken, boolean manual,
+            AmikiTermuxWakeWordBridge.ManualLaunchListener manualListener) throws IOException {
+        if (isVerified(asset, destination)) {
+            report(listener, (index + 1) * 100 / ASSETS.length,
+                    "Reusing verified model asset " + asset.name + "…");
+            return;
+        }
+        if (destination.exists() && !destination.delete()) {
+            throw new IOException("Could not remove an invalid cached model asset: " + asset.name);
+        }
         DownloadAttemptException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
             try {
+                // Re-check the Termux worker before every asset attempt. If its
+                // process died, establish a fresh one-use handoff and relaunch it.
+                AmikiTermuxWakeWordBridge.ensureRunning(
+                        context, bridgeToken, manual, manualListener);
                 downloadAndVerifyOnce(asset, destination, index, listener, bridgeToken);
                 return;
             } catch (DownloadAttemptException failure) {
@@ -196,6 +211,15 @@ final class AmikiWakeWordModel {
             }
         }
         throw new IOException("Wake-word model download failed.", lastFailure);
+    }
+
+    private static boolean isVerified(Asset asset, File file) {
+        if (file == null || !file.isFile() || file.length() != asset.size) return false;
+        try {
+            return asset.sha256.equals(sha256(file));
+        } catch (IOException failure) {
+            return false;
+        }
     }
 
     private static void downloadAndVerifyOnce(
