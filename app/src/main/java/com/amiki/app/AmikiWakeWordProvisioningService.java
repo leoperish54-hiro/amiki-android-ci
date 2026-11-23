@@ -14,6 +14,7 @@ import android.os.IBinder;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -32,6 +33,7 @@ public final class AmikiWakeWordProvisioningService extends Service {
     private static final String KEY_PROGRESS = "progress";
     private static final String KEY_DETAIL = "detail";
     private static final String KEY_UPDATED = "updated_at";
+    private static final String KEY_SESSION_ID = "session_id";
     private static final String CHANNEL_ID = "amiki_wake_word_provisioning";
     private static final int NOTIFICATION_ID = 8401;
     private static final int MAX_SESSION_ATTEMPTS = 5;
@@ -40,8 +42,14 @@ public final class AmikiWakeWordProvisioningService extends Service {
     private ExecutorService executor;
     private volatile boolean cancelled;
     private boolean running;
+    private String lastNotifiedState = "";
+    private int lastNotifiedProgress = -10;
 
     public static void start(Context context) {
+        SharedPreferences prefs = preferences(context);
+        if (!isActive(context)) {
+            prefs.edit().putString(KEY_SESSION_ID, UUID.randomUUID().toString()).apply();
+        }
         Intent intent = new Intent(context, AmikiWakeWordProvisioningService.class)
                 .setAction(ACTION_START);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -68,6 +76,10 @@ public final class AmikiWakeWordProvisioningService extends Service {
         return preferences(context).getString(KEY_DETAIL, "No provisioning session has been started.");
     }
 
+    static String sessionId(Context context) {
+        return preferences(context).getString(KEY_SESSION_ID, "");
+    }
+
     static boolean isActive(Context context) {
         String value = state(context);
         return "STARTING".equals(value) || "RUNNING".equals(value) || "RETRYING".equals(value);
@@ -78,13 +90,30 @@ public final class AmikiWakeWordProvisioningService extends Service {
     }
 
     private void save(String state, int progress, String detail) {
-        preferences(this).edit()
+        int boundedProgress = Math.max(0, Math.min(100, progress));
+        String safeDetail = detail == null ? "" : detail;
+        SharedPreferences prefs = preferences(this);
+        String previousState = prefs.getString(KEY_STATE, "IDLE");
+        int previousProgress = prefs.getInt(KEY_PROGRESS, 0);
+        String previousDetail = prefs.getString(KEY_DETAIL, "");
+        if (state.equals(previousState) && boundedProgress == previousProgress
+                && safeDetail.equals(previousDetail)) {
+            return;
+        }
+        prefs.edit()
                 .putString(KEY_STATE, state)
-                .putInt(KEY_PROGRESS, Math.max(0, Math.min(100, progress)))
-                .putString(KEY_DETAIL, detail == null ? "" : detail)
+                .putInt(KEY_PROGRESS, boundedProgress)
+                .putString(KEY_DETAIL, safeDetail)
                 .putLong(KEY_UPDATED, System.currentTimeMillis())
                 .apply();
-        updateNotification(state, detail);
+        // Avoid notifying Android for every 16 KiB transfer chunk. Progress is
+        // persisted at integer-percent checkpoints; notifications update at 5% steps.
+        if (!state.equals(lastNotifiedState)
+                || Math.abs(boundedProgress - lastNotifiedProgress) >= 5) {
+            updateNotification(state, safeDetail);
+            lastNotifiedState = state;
+            lastNotifiedProgress = boundedProgress;
+        }
     }
 
     @Override
